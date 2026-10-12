@@ -1,0 +1,191 @@
+name: UI tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      browser:
+        description: Browser
+        type: choice
+        options:
+          - chrome
+        default: chrome
+      browserSize:
+        description: Browser window size, WIDTHxHEIGHT
+        type: string
+        default: 1920x1080
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ui-tests-github-search
+  cancel-in-progress: false
+
+env:
+  CHROME_VERSION: 153.0.8010.52
+  ALLURE_VERSION: 2.46.1
+  ALLURE_SHA256: 37428164f310c8d137cfdd2c3a25d049b233261ddab13e1bd4dfd7627b5cbf8d
+
+jobs:
+  ui-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      report-generated: ${{ steps.report.outcome == 'success' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate inputs
+        env:
+          BROWSER: ${{ inputs.browser }}
+          BROWSER_SIZE: ${{ inputs.browserSize }}
+        run: |
+          if [[ "$BROWSER" != "chrome" ]]; then
+            echo "::error::Unsupported browser: only chrome is installed in CI"
+            exit 1
+          fi
+          if [[ ! "$BROWSER_SIZE" =~ ^[0-9]{3,4}x[0-9]{3,4}$ ]]; then
+            echo "::error::browserSize must match WIDTHxHEIGHT, e.g. 1920x1080"
+            exit 1
+          fi
+
+      - name: Set up Java 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+
+      - name: Install Chrome for Testing and ChromeDriver
+        id: chrome
+        uses: browser-actions/setup-chrome@48ad923757ca74d66703209fe939badbdf80f2f4 # v2.2.0
+        with:
+          chrome-version: ${{ env.CHROME_VERSION }}
+          install-chromedriver: true
+          install-dependencies: true
+
+      - name: Install Allure Report CLI
+        run: |
+          archive="$RUNNER_TEMP/allure-commandline-$ALLURE_VERSION.tgz"
+          curl -fsSL -o "$archive" "https://repo.maven.apache.org/maven2/io/qameta/allure/allure-commandline/$ALLURE_VERSION/allure-commandline-$ALLURE_VERSION.tgz"
+          echo "$ALLURE_SHA256  $archive" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/allure-$ALLURE_VERSION/bin" >> "$GITHUB_PATH"
+
+      - name: Show tool versions
+        env:
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+          CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
+        run: |
+          echo "JAVA_HOME=$JAVA_HOME"
+          "$JAVA_HOME/bin/java" -version
+          java_major=$("$JAVA_HOME/bin/java" -XshowSettings:properties -version 2>&1 | awk -F' = ' '/java.specification.version/ {print $2}')
+          if [[ "$java_major" != "21" ]]; then
+            echo "::error::Expected Java 21, got $java_major"
+            exit 1
+          fi
+          ./gradlew --version
+          chrome_version=$("$CHROME_PATH" --version)
+          driver_version=$("$CHROMEDRIVER_PATH" --version)
+          echo "$chrome_version ($CHROME_PATH)"
+          echo "$driver_version ($CHROMEDRIVER_PATH)"
+          if [[ "$chrome_version" != *" $CHROME_VERSION"* || "$driver_version" != "ChromeDriver $CHROME_VERSION "* ]]; then
+            echo "::error::Chrome and ChromeDriver must both be $CHROME_VERSION"
+            exit 1
+          fi
+          allure_version=$(allure --version)
+          echo "Allure Report CLI $allure_version ($(command -v allure))"
+          if [[ "$allure_version" != "$ALLURE_VERSION" ]]; then
+            echo "::error::Expected Allure $ALLURE_VERSION, got $allure_version"
+            exit 1
+          fi
+
+      - name: Compile tests
+        id: compile
+        run: ./gradlew testClasses --console=plain
+
+      - name: Run UI tests
+        id: tests
+        env:
+          BROWSER: ${{ inputs.browser }}
+          BROWSER_SIZE: ${{ inputs.browserSize }}
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+          CHROMEDRIVER_PATH: ${{ steps.chrome.outputs.chromedriver-path }}
+        run: >-
+          ./gradlew test --console=plain
+          -DbaseUrl=https://github.com
+          "-Dbrowser=$BROWSER"
+          "-DbrowserSize=$BROWSER_SIZE"
+          -Dheadless=true
+          "-Dselenide.browserBinary=$CHROME_PATH"
+          "-Dwebdriver.chrome.driver=$CHROMEDRIVER_PATH"
+
+      - name: Upload Allure results
+        if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: allure-results
+          path: build/allure-results
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload JUnit XML and Gradle test report
+        if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-and-gradle-report
+          path: |
+            build/test-results/test
+            build/reports/tests/test
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Generate Allure report
+        id: report
+        if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
+        run: |
+          if ! compgen -G "build/allure-results/*-result.json" > /dev/null; then
+            echo "::error::No Allure test results in build/allure-results; the report is not generated"
+            exit 1
+          fi
+          allure generate build/allure-results --clean -o build/allure-report
+
+      - name: Upload Allure report
+        if: ${{ !cancelled() && steps.report.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: allure-report
+          path: build/allure-report
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Allure report for GitHub Pages
+        if: ${{ !cancelled() && steps.report.outcome == 'success' && github.ref_name == github.event.repository.default_branch }}
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: build/allure-report
+          retention-days: 14
+
+  deploy-report:
+    needs: ui-tests
+    if: ${{ !cancelled() && needs.ui-tests.outputs.report-generated == 'true' && github.ref_name == github.event.repository.default_branch }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy Allure report to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
