@@ -2,7 +2,7 @@
 
 ## Назначение
 
-Постепенно добавить TestBase, независимые сценарии, Page Object, Allure Report 3, GitHub Actions, Telegram и Jenkins, сохраняя существующий Java-стек.
+Постепенно добавить TestBase, независимые сценарии, Page Object, Allure-отчёты (по решению фазы 4 — генератор Allure Report 2), GitHub Actions, Telegram и Jenkins, сохраняя существующий Java-стек.
 
 В этом документе хранятся согласованные решения, статусы фаз, результаты проверок, ограничения и открытые вопросы. Общие правила работы агента находятся отдельно в [AGENTS.md](../../AGENTS.md). После каждой фазы обновлять этот план; не отмечать выполнение без подтверждённых результатов.
 
@@ -11,14 +11,14 @@
 - Java 21 через Gradle Java toolchain; Gradle Wrapper 9.6.0, bin-дистрибутив.
 - Selenide 7.18.2, JUnit Jupiter 6.1.3; исходно разрешённый Selenium — 4.49.0. Версии зависимостей без согласования не менять.
 - Defaults: baseUrl=https://github.com, browser=chrome, browserSize=1920x1080, headless=false.
-- Переопределение через -DbaseUrl, -Dbrowser, -DbrowserSize, -Dheadless с явной передачей только этих свойств из Gradle в JVM тестов.
+- Переопределение через -DbaseUrl, -Dbrowser, -DbrowserSize, -Dheadless с явной передачей этих свойств из Gradle в JVM тестов. Дополнительно (фаза 5) Gradle передаёт `selenide.browserBinary` и `webdriver.chrome.driver` только если они заданы; без них локальное поведение не меняется.
 - В CI явно передавать headless=true.
 - Page Object: fluent API; проверки в should…-методах страниц; private final SelenideElement-поля; имена методов описывают пользовательские действия.
 - Отдельные компоненты выделять только при реальном повторении блоков. Не добавлять BasePage, фабрики и сложную конфигурационную систему без необходимости.
 - Структура Page Object: packages `tests` (SearchTests, TestBase) и `pages` (SearchPage, SearchResultsPage). open("/search") живёт в SearchPage.open() и остаётся относительным к baseUrl; assertions — в should…-методах страниц (shouldHaveResult, shouldBeEmpty) с исходными локаторами и порядком проверок.
-- Отчёты: генератор — Allure Report 2 CLI через Homebrew (`allure` 2.46.1); Node.js и npm-зависимости в проект не вводятся (решение пользователя на этапе A фазы 4 вместо изначального Report 3).
+- Отчёты: генератор — Allure Report 2 CLI 2.46.1 (локально через Homebrew; в CI — официальный tgz с Maven Central с закреплённым SHA-256); Node.js и npm-зависимости в проект не вводятся (решение пользователя на этапе A фазы 4 вместо изначального Report 3).
 - JVM-адаптеры: Allure Java 3.0.0 — `allure-jupiter` (JUnit 5 и 6) + `allure-selenide` (Selenide 7.x), версии выравниваются через `allure-bom`; формат результатов совместим с генератором Report 2.
-- Шаги в отчёте: `@Step` на методах страниц (требует `-javaagent:aspectjweaver` на JVM тестов, версия 1.9.25) + технические шаги Selenide от `AllureSelenide` (вкладываются в пользовательские). Вложения — Screenshot и Page source только при падении (дефолты `AllureSelenide`); listener регистрируется один раз в `@BeforeAll` TestBase.
+- Шаги в отчёте: `@Step` на методах страниц (требует `-javaagent:aspectjweaver` на JVM тестов, версия 1.9.25) + технические шаги Selenide от `AllureSelenide` (вкладываются в пользовательские). Вложения — Screenshot и Page source только при падении (дефолты `AllureSelenide`); listener регистрируется в `@BeforeAll` TestBase — это выполняется на каждый тестовый класс, а не один раз на JVM; повторный вызов `addListener("allure", …)` заменяет listener с тем же именем.
 - Результаты Allure — `build/allure-results` (`src/test/resources/allure.properties`), отчёт — `build/allure-report`; оба каталога внутри `build/` и не попадают в git.
 
 ## Текущее состояние
@@ -30,7 +30,8 @@
 - Реализация и проверки тестов фазы 2 подтверждены исходниками, коммитом 3cefd221898c108ba538f5daee1ea4c30e76d615 и предоставленным отчётом фазы 3: все три теста выполнены отдельно, с defaults и в headless. Сведения о первоначальном согласовании сценариев и риск данных второго негативного сценария остаются открытыми.
 - Фаза 3 завершена по отчёту пользователя, коммит 1312c8da32be42e5351af1334cf0bf035c65ab54 подтверждён в истории: локаторы и взаимодействия перенесены в pages.SearchPage и pages.SearchResultsPage, тесты и TestBase перемещены в package tests. Структура и сохранение assertions подтверждены чтением файлов; браузерные проверки при обновлении плана не повторялись.
 - Фаза 4 завершена в этой сессии: Allure Java 3.0.0 (адаптеры) + Allure Report 2.46.1 CLI (генератор); проверки и ограничения — в разделе фазы 4.
-- Фазы 5–8 не подтверждены как начатые.
+- Фаза 5 в работе: workflow и локальные проверки — в разделе фазы 5; статус реального CI указан там же.
+- Фазы 6–8 не начаты.
 
 ## Фаза 0 — Baseline
 
@@ -150,26 +151,59 @@ gradle test --tests SearchTests.successfulSearchTest --rerun-tasks --console=pla
 - Изоляция прогонов: `build/allure-results` очищался перед прогоном падения и перед финальным прогоном; отчёт падения собран отдельно в `build/allure-report-failure`.
 - Финальное состояние: assertion восстановлен, `./gradlew test --rerun-tasks` — 3/3 passed, exit code 0; отчёт пересобран в `build/allure-report`.
 
-Ограничения: версия CLI не фиксируется в репозитории (brew-установка глобальна; на момент проверки — 2.46.1), lock-файла нет — осознанный компромисс отказа от Node.js. Визуальная приёмка отчёта выполнена пользователем через preview; данные отчёта проверены программно. Windows/Linux и реальный CI не проверялись; внешний GitHub может отвечать HTTP 429.
+Ограничения: версия CLI не фиксируется в репозитории (brew-установка глобальна; на момент проверки — 2.46.1), lock-файла нет — осознанный компромисс отказа от Node.js. Отчёт был открыт пользователю через browser preview, но явной визуальной приёмки от пользователя не зафиксировано (исправлено при фазе 5); данные отчёта проверены программно (HTTP 200 и JSON), что визуальную приёмку не заменяет. Windows/Linux и реальный CI не проверялись; внешний GitHub может отвечать HTTP 429.
 
 ## Фаза 5 — GitHub Actions
 
-### Перед реализацией согласовать
+Статус: workflow реализован и проверен локально; реальный запуск GitHub Actions — см. «Проверка в реальном GitHub Actions».
 
-- [ ] Какие события и ветки запускают workflow.
-- [ ] Достаточно ли артефакта отчёта или нужен опубликованный сайт; если сайт — где и с каким доступом.
-- [ ] Какие параметры тестов можно переопределять в CI.
-- [ ] Принятые имена GitHub secrets, без передачи значений в чат.
+Файлы: [.github/workflows/ui-tests.yml](../../.github/workflows/ui-tests.yml), `build.gradle` (необязательная передача `selenide.browserBinary` и `webdriver.chrome.driver`). Коммит реализации: d473a0242d2952534fe9106f1398ebebe76522d3.
 
-### Реализация и проверка
+### Согласовано на этапе A (2026-10-12)
 
-- [ ] Явно подготовить Java, Node.js, браузер и совместимый драйвер; не предполагать наличие браузера.
-- [ ] Запускать браузер непосредственно на GitHub-hosted runner, без Selenoid, Grid и remote WebDriver.
-- [ ] Использовать wrapper и согласованные параметры.
-- [ ] После падений сохранять JUnit XML, Allure results, вложения и готовый отчёт, если они созданы.
-- [ ] Сохранять failure workflow при падении тестов, использовать минимальные permissions.
-- [ ] Не предоставлять секреты недоверенному коду fork PR.
-- [ ] Отдельно зафиксировать локальную проверку конфигурации и реальный запуск CI; создать коммит.
+- [x] События: только `workflow_dispatch`; push, pull_request и расписание не используются.
+- [x] Публикация: артефакты (retention 14 дней) и публичный GitHub Pages (source = GitHub Actions). Pages публикуется только для запусков из default branch при успешно сгенерированном отчёте, в том числе при упавших тестах.
+- [x] Inputs: `browser` (choice, только `chrome`) и `browserSize` (`^[0-9]{3,4}x[0-9]{3,4}$`). baseUrl зафиксирован как https://github.com, выбор тестов не предусмотрен, headless=true всегда.
+- [x] Браузер: Chrome for Testing 153.0.8010.52 + ChromeDriver той же версии (совпадает с поддержкой CDP в Selenium 4.49.0 — v151–153); пути передаются в тесты через Gradle-свойства.
+- [x] Репозиторий для реального CI: отдельный публичный `qa-guru/getting-started-java-ai` (remote `ai`); `origin` (qa-guru/getting-started-java) не меняется.
+- [x] GitHub secrets в фазе 5 не используются. Имена secrets/credentials, Telegram-уведомления (из каких CI, для каких исходов), расположение Jenkins и агента (ОС, label, инструменты) пока неизвестны — открытые вопросы фаз 6–7.
+
+### Решения workflow
+
+- Runner `ubuntu-24.04` (не `-latest`), `timeout-minutes: 30`.
+- Actions закреплены по SHA (версии опубликованы не позже чем за 7 дней до выбора):
+  - `actions/checkout` v7.0.1 `3d3c42e5aac5ba805825da76410c181273ba90b1`, `persist-credentials: false`;
+  - `actions/setup-java` v6.0.1 `de7274f081f381c8f8158605e0321c36c376e2e6`, Temurin 21;
+  - `gradle/actions/setup-gradle` v6.4.0 `3f5f9adaf7d9fecd50b5935e54106014257a94e6`;
+  - `browser-actions/setup-chrome` v2.2.0 `48ad923757ca74d66703209fe939badbdf80f2f4`;
+  - `actions/upload-artifact` v7.0.1 `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` (v7.0.2 моложе 7 дней на момент выбора);
+  - `actions/upload-pages-artifact` v5.0.0 `fc324d3547104276b827a68afc52ff2a11cc49c9`;
+  - `actions/deploy-pages` v5.0.1 `368f82528645a54fb793d4d04e342629a3f51346`.
+- Allure CLI: `https://repo.maven.apache.org/maven2/io/qameta/allure/allure-commandline/2.46.1/allure-commandline-2.46.1.tgz`, SHA-256 `37428164f310c8d137cfdd2c3a25d049b233261ddab13e1bd4dfd7627b5cbf8d` — совпадает с digest ассета `allure-2.46.1.tgz` в GitHub Release allure-framework/allure2 и с `.sha1` Maven Central. Генератор использует `JAVA_HOME` из setup-java; workflow проверяет Java 21, совпадение версий Chrome/ChromeDriver и версию Allure.
+- Permissions: `contents: read` на уровне workflow; `pages: write` и `id-token: write` только у job `deploy-report`. `pull_request_target` и secrets не используются.
+- Concurrency: одна глобальная группа `ui-tests-github-search` без отмены текущего запуска — снижает риск HTTP 429. GitHub держит не больше одного ожидающего запуска в группе, более ранний ожидающий отменяется. Матрицы, параллельных тестов и ретраев нет.
+- Inputs передаются только через `env` и процитированные аргументы, после проверки по allowlist/regex.
+- Шаги: compile (`./gradlew testClasses`) отдельно от `./gradlew test`. После успешной компиляции, даже при падении тестов, загружаются `allure-results` и `junit-and-gradle-report` (`build/test-results/test`, `build/reports/tests/test`), затем генерируется отчёт. Без `*-result.json` генерация явно падает, пустой отчёт не создаётся. Загрузка сырых результатов идёт до генерации, поэтому ошибка генерации её не блокирует. Без `continue-on-error`, `|| true` и `tee`.
+- Каждый запуск идёт на чистом runner; `build/` не кэшируется, чужие артефакты не скачиваются.
+
+Ожидаемое поведение:
+
+| Сценарий | Итог job | Артефакты |
+|---|---|---|
+| Тесты прошли | success | results, JUnit/Gradle HTML, report; Pages для default branch |
+| Падение assertion | failure (exit code Gradle) | то же, с Screenshot и Page source в results |
+| Ошибка компиляции | failure на шаге Compile tests | нет |
+| Ошибка генерации | failure на шаге Generate | results и JUnit/Gradle HTML |
+| Нет результатов | failure на шаге Generate, `::error::No Allure test results` | только то, что создано |
+
+### Локальная проверка (macOS, 2026-10-12)
+
+- `actionlint` 1.7.12 (release-бинарь с проверкой checksum, вне проекта) со встроенным shellcheck — 0 ошибок.
+- Передача свойств через Gradle (временный init-скрипт в /tmp, `test --dry-run`): без свойств — только четыре исходных значения; с `-Dselenide.browserBinary="/opt/c t/chrome" -Dwebdriver.chrome.driver=…` оба значения доходят до `Test.systemProperties`, путь с пробелом сохраняется. Selenide 7.18.2 читает `selenide.browserBinary` (`SelenideConfig`), Selenium 4.49.0 — `webdriver.chrome.driver`.
+- Скрипт установки CLI: скачивание с Maven Central, `allure --version` → 2.46.1, `JAVA_HOME` = Java 21. `sha256sum --check --strict` локально не проверен: на macOS BSD-утилита без `--strict`, GNU coreutils и Docker недоступны. Сам checksum сверен через `shasum -a 256`.
+- Логика «нет результатов» на пустом каталоге выдаёт ошибку; `allure generate` на результатах фазы 4 → summary passed=3, total=3.
+- UI-тесты локально не перезапускались (риск 429; Java-код не менялся).
+- Linux-окружение локально не проверено: Docker daemon не запущен.
 
 ## Фаза 6 — Telegram
 
@@ -182,7 +216,7 @@ gradle test --tests SearchTests.successfulSearchTest --rerun-tasks --console=pla
 ### Реализация и проверка
 
 - [ ] Использовать secrets окружения без хардкода и логирования.
-- [ ] Брать passed/failed/skipped из проверенного формата JUnit XML; не предполагать наличие схем Allure Report 2 в Report 3.
+- [ ] Брать passed/failed/skipped из проверенного формата JUnit XML; не опираться на непроверенные внутренние файлы Allure-отчёта.
 - [ ] Отличать сбой сборки до запуска тестов от успешного запуска с нулём тестов.
 - [ ] Включить проект, CI, branch/commit, статус тестов, статистику и ссылку на запуск.
 - [ ] Проверять HTTP-ответ и результат Telegram API; не маскировать исходное падение ошибкой уведомления.
@@ -193,15 +227,15 @@ gradle test --tests SearchTests.successfulSearchTest --rerun-tasks --console=pla
 ### Перед реализацией уточнить
 
 - [ ] Где находятся Jenkins и агент, доступ, ОС, label и доступные инструменты.
-- [ ] Доступность Java, Node.js, браузеров и драйверов.
+- [ ] Доступность Java, браузеров, драйверов и Allure Report 2 CLI 2.46.1 (Node.js проекту не нужен).
 - [ ] Параметры запуска, имена Jenkins Credentials и Telegram-уведомления.
-- [ ] Способ генерации и публикации Allure Report 3.
+- [ ] Способ генерации и публикации Allure Report 2 (CLI с закреплённым checksum, как в GitHub Actions, или Allure Jenkins plugin).
 
 ### Реализация и проверка
 
 - [ ] Добавить Jenkinsfile с теми же командами тестов и генерации отчёта, что локально и в GitHub Actions.
 - [ ] Публиковать JUnit XML, сохранять результаты, вложения и отчёт при падениях.
-- [ ] Проверить поддержку Report 3 выбранным способом; не предполагать совместимость стандартного Allure Jenkins plugin.
+- [ ] Проверить выбранный способ генерации Report 2 на реальном агенте; не предполагать наличие плагина или CLI.
 - [ ] При отсутствии совместимости согласовать альтернативную генерацию и хранение отчёта.
 - [ ] Не устанавливать плагины и не менять Jenkins глобально без разрешения.
 - [ ] Разделить проверку Jenkinsfile и реальный запуск Jenkins; создать коммит.
