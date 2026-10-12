@@ -16,6 +16,10 @@
 - Page Object: fluent API; проверки в should…-методах страниц; private final SelenideElement-поля; имена методов описывают пользовательские действия.
 - Отдельные компоненты выделять только при реальном повторении блоков. Не добавлять BasePage, фабрики и сложную конфигурационную систему без необходимости.
 - Структура Page Object: packages `tests` (SearchTests, TestBase) и `pages` (SearchPage, SearchResultsPage). open("/search") живёт в SearchPage.open() и остаётся относительным к baseUrl; assertions — в should…-методах страниц (shouldHaveResult, shouldBeEmpty) с исходными локаторами и порядком проверок.
+- Отчёты: генератор — Allure Report 2 CLI через Homebrew (`allure` 2.46.1); Node.js и npm-зависимости в проект не вводятся (решение пользователя на этапе A фазы 4 вместо изначального Report 3).
+- JVM-адаптеры: Allure Java 3.0.0 — `allure-jupiter` (JUnit 5 и 6) + `allure-selenide` (Selenide 7.x), версии выравниваются через `allure-bom`; формат результатов совместим с генератором Report 2.
+- Шаги в отчёте: `@Step` на методах страниц (требует `-javaagent:aspectjweaver` на JVM тестов, версия 1.9.25) + технические шаги Selenide от `AllureSelenide` (вкладываются в пользовательские). Вложения — Screenshot и Page source только при падении (дефолты `AllureSelenide`); listener регистрируется один раз в `@BeforeAll` TestBase.
+- Результаты Allure — `build/allure-results` (`src/test/resources/allure.properties`), отчёт — `build/allure-report`; оба каталога внутри `build/` и не попадают в git.
 
 ## Текущее состояние
 
@@ -25,7 +29,8 @@
 - Фаза 1 завершена по отчёту пользователя. Коммит e55ae45ae599cdfa83cfac608dbe96b42d0a3916 и соответствующая конфигурация подтверждены чтением репозитория; браузерные проверки фазы 1 при сохранении плана не повторялись.
 - Реализация и проверки тестов фазы 2 подтверждены исходниками, коммитом 3cefd221898c108ba538f5daee1ea4c30e76d615 и предоставленным отчётом фазы 3: все три теста выполнены отдельно, с defaults и в headless. Сведения о первоначальном согласовании сценариев и риск данных второго негативного сценария остаются открытыми.
 - Фаза 3 завершена по отчёту пользователя, коммит 1312c8da32be42e5351af1334cf0bf035c65ab54 подтверждён в истории: локаторы и взаимодействия перенесены в pages.SearchPage и pages.SearchResultsPage, тесты и TestBase перемещены в package tests. Структура и сохранение assertions подтверждены чтением файлов; браузерные проверки при обновлении плана не повторялись.
-- Фазы 4–8 не подтверждены как начатые.
+- Фаза 4 завершена в этой сессии: Allure Java 3.0.0 (адаптеры) + Allure Report 2.46.1 CLI (генератор); проверки и ограничения — в разделе фазы 4.
+- Фазы 5–8 не подтверждены как начатые.
 
 ## Фаза 0 — Baseline
 
@@ -124,13 +129,28 @@ gradle test --tests SearchTests.successfulSearchTest --rerun-tasks --console=pla
 
 ## Фаза 4 — Allure Report 3
 
-- [ ] Разделить JVM-адаптеры Allure и CLI-генератор отчёта.
-- [ ] Проверить совместимость с фактическими Java 21, JUnit 6 и Selenide; не считать её подтверждённой заранее.
-- [ ] Выбрать и зафиксировать проверенные версии, без latest.
-- [ ] Проверить актуальную официальную документацию и встроенный --help; подтвердить версию генератора Report 3.
-- [ ] Согласовать необходимые шаги и вложения.
-- [ ] Сгенерировать и открыть отчёт, проверить диагностику контролируемого падения.
-- [ ] Восстановить успешное состояние, исключить generated artifacts из git и создать коммит.
+Статус: завершена с изменением решения — генератор Allure Report 2 вместо Report 3.
+
+На этапе A пользователь отклонил Node.js-зависимость генератора Report 3 (npm `allure` 3.x) и выбрал Report 2 через Homebrew. Название фазы оставлено как в исходном плане; фактический генератор — Allure Report 2 CLI 2.46.1. JVM-адаптеры — Allure Java 3.0.0.
+
+- [x] Разделить JVM-адаптеры Allure и CLI-генератор отчёта: адаптеры пишут `build/allure-results`, brew `allure` собирает HTML в `build/allure-report`.
+- [x] Проверить совместимость с фактическими Java 21, JUnit 6 и Selenide: allure-java 3.0.0 требует Java 17+ и заявляет работу с JUnit 6 и 5; allure-selenide нацелен на Selenide 7.x; формат результатов Allure Java 3 читается Report 2 (официальный migration guide). Понижать Java, JUnit или Selenide не потребовалось.
+- [x] Выбрать и зафиксировать проверенные версии: allure-bom/allure-jupiter/allure-selenide 3.0.0 (релиз 2026-09-11), aspectjweaver 1.9.25 (2025-11-04), CLI `allure` 2.46.1 (обновлён с 2.36.0 через brew по запросу пользователя).
+- [x] Проверить актуальную документацию и встроенный --help: `allure --version` → 2.46.1; команды `generate` (`-o/--report-dir`, `--clean`, `--single-file`), `open` (`-h`, `-p`), `serve`; отдельного `--help` у субкоманд в 2.x нет.
+- [x] Согласовать шаги и вложения: `@Step` на методах страниц + технические шаги Selenide (выбор пользователя), Screenshot + Page source при падении (дефолты AllureSelenide).
+- [x] Сгенерировать и открыть отчёт, проверить диагностику контролируемого падения.
+- [x] Восстановить успешное состояние, исключить generated artifacts из git и создать коммит.
+
+Проверки этой сессии (2026-10-12):
+
+- `./gradlew test --rerun-tasks --console=plain` — BUILD SUCCESSFUL, 3/3 passed; создано 3 `*-result.json` + контейнеры в `build/allure-results`.
+- Дерево шагов в результатах: пользовательские `@Step` с подстановкой параметров («Search for "qa.guru"») и вложенные технические шаги Selenide (`$("open")`, `set value`, `should have`, `webdriver create/close`).
+- `allure generate build/allure-results --clean -o build/allure-report`; `allure open build/allure-report -h 127.0.0.1 -p 45624` — сервер отвечает HTTP 200; в данных отчёта (`suites.json`, `test-cases/*.json`) все 3 теста passed с полным деревом шагов. UI показан пользователю через browser preview.
+- Контролируемое падение: в `successfulSearchTest` ожидаемый текст временно заменён на `QA.GURU-NO-SUCH-TEXT`. Gradle вернул exit code 1 (BUILD FAILED); причина — намеренный assertion `Element should have text "QA.GURU-NO-SUCH-TEXT"`, не HTTP 429. На упавшем шаге записаны Screenshot (PNG) и Page source (HTML), файлы вложений существуют на диске; stack trace присутствует. После падения браузерных процессов не осталось; `webdriver close()` записан как passed.
+- Изоляция прогонов: `build/allure-results` очищался перед прогоном падения и перед финальным прогоном; отчёт падения собран отдельно в `build/allure-report-failure`.
+- Финальное состояние: assertion восстановлен, `./gradlew test --rerun-tasks` — 3/3 passed, exit code 0; отчёт пересобран в `build/allure-report`.
+
+Ограничения: версия CLI не фиксируется в репозитории (brew-установка глобальна; на момент проверки — 2.46.1), lock-файла нет — осознанный компромисс отказа от Node.js. Визуальная приёмка отчёта выполнена пользователем через preview; данные отчёта проверены программно. Windows/Linux и реальный CI не проверялись; внешний GitHub может отвечать HTTP 429.
 
 ## Фаза 5 — GitHub Actions
 
@@ -203,6 +223,9 @@ gradle test --tests SearchTests.successfulSearchTest --rerun-tasks --console=pla
 ./gradlew --version
 ./gradlew test --rerun-tasks --console=plain
 ./gradlew test -Dheadless=true -DbrowserSize=1366x768 --rerun-tasks --console=plain
+allure --version
+allure generate build/allure-results --clean -o build/allure-report
+allure open build/allure-report
 git diff --check
 ```
 

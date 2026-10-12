@@ -12,11 +12,22 @@ repositories {
     mavenCentral()
 }
 
+configurations {
+    agent {
+        canBeResolved = true
+        canBeConsumed = true
+    }
+}
+
 dependencies {
+    testImplementation platform("io.qameta.allure:allure-bom:3.0.0")
     testImplementation(
             "com.codeborne:selenide:7.18.2",
-            "org.junit.jupiter:junit-jupiter:6.1.3")
+            "org.junit.jupiter:junit-jupiter:6.1.3",
+            "io.qameta.allure:allure-jupiter",
+            "io.qameta.allure:allure-selenide")
     testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+    agent "org.aspectj:aspectjweaver:1.9.25"
 }
 
 tasks.withType(JavaCompile) {
@@ -25,6 +36,7 @@ tasks.withType(JavaCompile) {
 
 test {
     useJUnitPlatform()
+    jvmArgs "-javaagent:${configurations.agent.singleFile}"
     systemProperty 'baseUrl', System.getProperty('baseUrl', 'https://github.com')
     systemProperty 'browser', System.getProperty('browser', 'chrome')
     systemProperty 'browserSize', System.getProperty('browserSize', '1920x1080')
