@@ -124,7 +124,7 @@ jobs:
           -Dheadless=true
           "-Dselenide.browserBinary=$CHROME_PATH"
           "-Dwebdriver.chrome.driver=$CHROMEDRIVER_PATH"
-          "-Dselenide.chromeoptions.args=--no-sandbox --disable-dev-shm-usage"
+          "-Dchromeoptions.args=--no-sandbox"
 
       - name: Upload Allure results
         if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
