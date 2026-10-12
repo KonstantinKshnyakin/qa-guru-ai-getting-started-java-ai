@@ -30,7 +30,7 @@
 - Реализация и проверки тестов фазы 2 подтверждены исходниками, коммитом 3cefd221898c108ba538f5daee1ea4c30e76d615 и предоставленным отчётом фазы 3: все три теста выполнены отдельно, с defaults и в headless. Сведения о первоначальном согласовании сценариев и риск данных второго негативного сценария остаются открытыми.
 - Фаза 3 завершена по отчёту пользователя, коммит 1312c8da32be42e5351af1334cf0bf035c65ab54 подтверждён в истории: локаторы и взаимодействия перенесены в pages.SearchPage и pages.SearchResultsPage, тесты и TestBase перемещены в package tests. Структура и сохранение assertions подтверждены чтением файлов; браузерные проверки при обновлении плана не повторялись.
 - Фаза 4 завершена в этой сессии: Allure Java 3.0.0 (адаптеры) + Allure Report 2.46.1 CLI (генератор); проверки и ограничения — в разделе фазы 4.
-- Фаза 5 в работе: workflow и локальные проверки — в разделе фазы 5; статус реального CI указан там же.
+- Фаза 5 завершена: workflow проверен локально и четырьмя запусками реального GitHub Actions — в разделе фазы 5.
 - Фазы 6–8 не начаты.
 
 ## Фаза 0 — Baseline
@@ -155,7 +155,7 @@ gradle test --tests SearchTests.successfulSearchTest --rerun-tasks --console=pla
 
 ## Фаза 5 — GitHub Actions
 
-Статус: workflow реализован и проверен локально; реальный запуск GitHub Actions — см. «Проверка в реальном GitHub Actions».
+Статус: завершена — workflow проверен локально и в реальном GitHub Actions (см. ниже).
 
 Файлы: [.github/workflows/ui-tests.yml](../../.github/workflows/ui-tests.yml), `build.gradle` (необязательная передача `selenide.browserBinary` и `webdriver.chrome.driver`). Коммит реализации: d473a0242d2952534fe9106f1398ebebe76522d3.
 
@@ -204,6 +204,29 @@ gradle test --tests SearchTests.successfulSearchTest --rerun-tasks --console=pla
 - Логика «нет результатов» на пустом каталоге выдаёт ошибку; `allure generate` на результатах фазы 4 → summary passed=3, total=3.
 - UI-тесты локально не перезапускались (риск 429; Java-код не менялся).
 - Linux-окружение локально не проверено: Docker daemon не запущен.
+
+### Проверка в реальном GitHub Actions (2026-10-12)
+
+Репозиторий `qa-guru/getting-started-java-ai` (public, remote `ai`, создан через `gh repo create`; Pages включены через `POST /pages` build_type=workflow). Workflow регистрировался только после push-триггерного probe — особенность GitHub: dispatch-only workflow не индексировался по push на default branch; зарегистрировался после временного `on: [push]` на probe-ветке, затем `workflow_dispatch` заработал, временный триггер не вошёл в master.
+
+Реальные запуски (run id → результат):
+
+- **38309080672** (master): падение — `SessionNotCreatedException`, Chrome instance exited; заодно выявил отказ deploy-report: environment `github-pages` допускал только `main`. Исправлено: branch policy `master` добавлена через API (существующая `main` оставлена).
+- **38309549023** (master): падение — то же; setuid `chrome-sandbox` (chmod 4755) не помог.
+- **38309814119** (master): падение — то же; `chown root:root` + 4755 тоже.
+- **38310176235** (ci-check/diag, временная ветка): диагностика — `chrome --headless --dump-dom` падает без `--no-sandbox` (краш-дамп стека) и работает с ним; `--no-sandbox` при этом не доходил до ChromeOptions (см. следующий запуск).
+- **38309984893** (master): падение — `-Dselenide.chromeoptions.args` не сработал: Gradle прокидывает только whitelisted свойства, да и имя у Selenide другое.
+- **38310305965** (master): падение — `selenide.chromeoptions.args` неприменим: Selenide 7 читает plain-свойство `chromeoptions.args` (список через запятую), подтверждено по исходникам `ChromeDriverFactory`/`AbstractChromiumDriverFactory`.
+- **38310531034** (master): **успех** — BUILD SUCCESSFUL, 3/3 теста; артефакты allure-results (4 КБ), junit-and-gradle-report, allure-report, github-pages; Pages развёрнут: https://qa-guru.github.io/getting-started-java-ai/ отвечает HTTP 200, `widgets/summary.json`: passed=3, total=3.
+- **38310722420** (ci-check/assertion-fail): контролируемое падение assertion (`QA.GURU-NO-SUCH-TEXT`) — Run UI tests failure; allure-results с PNG+HTML-вложениями, JUnit XML и report загружены; Pages-шаг и deploy-report пропущены (не default branch). Ветка удалена.
+- **38310878425** (ci-check/compile-fail): ошибка компиляции — Compile tests failure; tests, uploads и generate пропущены; артефактов нет. Ветка удалена.
+- **38311003194** (ci-check/no-results): `./gradlew noSuchTask` — Run UI tests failure; Generate падает с `::error::No Allure test results`, отчёт с нулём тестов не создан, uploads отчёта пропущены. Ветка удалена.
+
+Итоговые решения по браузеру: Chrome падает на этом runner без `--no-sandbox` (user-namespace sandbox недоступен; setuid-helper не помогает) — аргумент передаётся только в CI через `-Dchromeoptions.args=--no-sandbox`; локальные запуски без него. Компромисс принят: ephemeral runner, открывается только github.com.
+
+Изменённые файлы фазы: `.github/workflows/ui-tests.yml`, `build.gradle` (проброс `selenide.browserBinary`, `webdriver.chrome.driver`, `chromeoptions.args` — только если заданы), этот план. Коммиты: d473a02 (workflow), 3c490e5 (промежуточный план), 24bea81→f253482 (исправления CI: Pages policy, chrome sandbox helper → удалён, chromeoptions.args), финальный коммит плана — ниже.
+
+Ограничения: один успешный прогон не доказывает стабильность при HTTP 429; входное значение `browserSize` влияет только на окно; macOS/Windows-агенты не используются; push/pull_request-триггеры и секреты отсутствуют; Pages публичны для всего интернета; визуальная приёмка отчёта на Pages пользователем не зафиксирована (проверено: HTTP 200 + summary.json).
 
 ## Фаза 6 — Telegram
 
