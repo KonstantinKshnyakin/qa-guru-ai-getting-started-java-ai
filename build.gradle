@@ -2,6 +2,12 @@ plugins {
     id 'java-library'
 }
 
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
 repositories {
     mavenCentral()
 }
@@ -19,4 +25,8 @@ tasks.withType(JavaCompile) {
 
 test {
     useJUnitPlatform()
+    systemProperty 'baseUrl', System.getProperty('baseUrl', 'https://github.com')
+    systemProperty 'browser', System.getProperty('browser', 'chrome')
+    systemProperty 'browserSize', System.getProperty('browserSize', '1920x1080')
+    systemProperty 'headless', System.getProperty('headless', 'false')
 }
