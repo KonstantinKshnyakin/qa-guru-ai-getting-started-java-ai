@@ -75,6 +75,7 @@ jobs:
         run: |
           sandbox_helper="$(dirname "$CHROME_PATH")/chrome-sandbox"
           if [[ -f "$sandbox_helper" ]]; then
+            sudo chown root:root "$sandbox_helper"
             sudo chmod 4755 "$sandbox_helper"
             ls -l "$sandbox_helper"
           else
