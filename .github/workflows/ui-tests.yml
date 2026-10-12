@@ -69,19 +69,6 @@ jobs:
           install-chromedriver: true
           install-dependencies: true
 
-      - name: Enable Chrome sandbox helper
-        env:
-          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
-        run: |
-          sandbox_helper="$(dirname "$CHROME_PATH")/chrome-sandbox"
-          if [[ -f "$sandbox_helper" ]]; then
-            sudo chown root:root "$sandbox_helper"
-            sudo chmod 4755 "$sandbox_helper"
-            ls -l "$sandbox_helper"
-          else
-            echo "::warning::chrome-sandbox not found next to $CHROME_PATH"
-          fi
-
       - name: Install Allure Report CLI
         run: |
           archive="$RUNNER_TEMP/allure-commandline-$ALLURE_VERSION.tgz"

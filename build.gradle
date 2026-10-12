@@ -41,7 +41,7 @@ test {
     systemProperty 'browser', System.getProperty('browser', 'chrome')
     systemProperty 'browserSize', System.getProperty('browserSize', '1920x1080')
     systemProperty 'headless', System.getProperty('headless', 'false')
-    ['selenide.browserBinary', 'webdriver.chrome.driver'].each { name ->
+    ['selenide.browserBinary', 'webdriver.chrome.driver', 'selenide.chromeoptions.args'].each { name ->
         def value = System.getProperty(name)
         if (value) {
             systemProperty name, value
