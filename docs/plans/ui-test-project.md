@@ -23,18 +23,18 @@
 
 ## Текущее состояние
 
-Последняя сверка файлов и git: 2026-10-12.
+Последняя сверка файлов и git: 2026-10-17 (фаза 8).
 
 - Фаза 0 завершена; исходный запуск проверен в этой переписке.
 - Фаза 1 завершена по отчёту пользователя. Коммит e55ae45ae599cdfa83cfac608dbe96b42d0a3916 и соответствующая конфигурация подтверждены чтением репозитория; браузерные проверки фазы 1 при сохранении плана не повторялись.
 - Реализация и проверки тестов фазы 2 подтверждены исходниками, коммитом 3cefd221898c108ba538f5daee1ea4c30e76d615 и предоставленным отчётом фазы 3: все три теста выполнены отдельно, с defaults и в headless. Сведения о первоначальном согласовании сценариев и риск данных второго негативного сценария остаются открытыми.
 - Фаза 3 завершена по отчёту пользователя, коммит 1312c8da32be42e5351af1334cf0bf035c65ab54 подтверждён в истории: локаторы и взаимодействия перенесены в pages.SearchPage и pages.SearchResultsPage, тесты и TestBase перемещены в package tests. Структура и сохранение assertions подтверждены чтением файлов; браузерные проверки при обновлении плана не повторялись.
 - Фаза 4 завершена в этой сессии: Allure Java 3.0.0 (адаптеры) + Allure Report 2.46.1 CLI (генератор); проверки и ограничения — в разделе фазы 4.
-- Фаза 5 завершена по отчёту: workflow проверен локально и в реальном GitHub Actions — успешные, контролируемые и диагностические запуски перечислены в разделе фазы 5.
+- Фаза 5 завершена по отчёту: workflow проверен локально и в реальном GitHub Actions — успешные, контролируемые и диагностические запуски перечислены в разделе фазы 5. Успешный запуск 38311448403 повторно подтверждён через API в фазе 8.
 - Фазы 6 и 7 отложены по решению пользователя в домашнее задание учащимся; не реализованы и не отмечаются выполненными в демонстрационном проекте.
-- Следующая фаза — 8 (Review): проверка текущего объёма 0–5 без реализации Telegram и Jenkins. При сохранении этого решения review ещё не выполнялся.
+- Фаза 8 (Review) выполнена 2026-10-17: объём фаз 0–5 проверен без изменения кода, workflow и инфраструктуры; findings, проверки и ограничения — в разделе фазы 8.
 
-Порядок дальнейшей работы: фаза 5 → фаза 8; фазы 6–7 выполняются учащимися отдельно, сначала согласование, затем по одной фазе с проверкой и собственным коммитом.
+Порядок дальнейшей работы: демонстрационный объём фаз 0–5 завершён и проверен; фазы 6–7 выполняются учащимися отдельно, сначала согласование, затем по одной фазе с проверкой и собственным коммитом.
 
 ## Фаза 0 — Baseline
 
@@ -214,21 +214,23 @@ gradle test --tests SearchTests.successfulSearchTest --rerun-tasks --console=pla
 
 Реальные запуски (run id → результат):
 
-- **38309080672** (master): падение — `SessionNotCreatedException`, Chrome instance exited; заодно выявил отказ deploy-report: environment `github-pages` допускал только `main`. Исправлено: branch policy `master` добавлена через API (существующая `main` оставлена).
-- **38309549023** (master): падение — то же; setuid `chrome-sandbox` (chmod 4755) не помог.
-- **38309814119** (master): падение — то же; `chown root:root` + 4755 тоже.
-- **38310176235** (ci-check/diag, временная ветка): диагностика — `chrome --headless --dump-dom` падает без `--no-sandbox` (краш-дамп стека) и работает с ним; `--no-sandbox` при этом не доходил до ChromeOptions (см. следующий запуск).
+- **38308963339** (probe-ветка): dispatch-probe успешен — workflow зарегистрирован.
+- **38309018121** (push-probe): ошибка на уровне workflow ещё до выполнения jobs (0 jobs) — не запуск тестов.
+- **38309080672** (master): падение — `SessionNotCreatedException`, Chrome instance exited; заодно выявил отказ deploy-report: environment `github-pages` допускал только `main`. Исправлено: branch policy `master` добавлена через API (существующая `main` оставлена). Примечание фазы 8: в этом запуске failed-отчёт был опубликован на Pages — поведение publish-always, согласованное на этапе A, подтверждено фактом.
+- **38309549023** (master): падение — то же; шаг setuid-helper искал файл `chrome-sandbox`, которого нет в архиве CfT (фактическое имя — `chrome_sandbox`), поэтому chmod 4755 фактически не применялся (уточнено в фазе 8).
+- **38309814119** (master): падение — то же; `chown root:root` + 4755 также не применялся по той же причине.
+- **38310176235** (ci-check/diag, временная ветка): диагностика — `chrome --headless --dump-dom` падает без `--no-sandbox` и работает с ним; причина падения в логе обрезана и не установлена (вероятна AppArmor-блокировка user namespaces для CfT на Ubuntu 23.10+ — гипотеза, не подтверждена); `--no-sandbox` при этом не доходил до ChromeOptions (см. следующий запуск).
 - **38309984893** (master): падение — `-Dselenide.chromeoptions.args` не сработал: Gradle прокидывает только whitelisted свойства, да и имя у Selenide другое.
 - **38310305965** (master): падение — `selenide.chromeoptions.args` неприменим: Selenide 7 читает plain-свойство `chromeoptions.args` (список через запятую), подтверждено по исходникам `ChromeDriverFactory`/`AbstractChromiumDriverFactory`.
 - **38310531034** (master): **успех** — BUILD SUCCESSFUL, 3/3 теста; артефакты allure-results (4 КБ), junit-and-gradle-report, allure-report, github-pages; Pages развёрнут: https://qa-guru.github.io/getting-started-java-ai/ отвечает HTTP 200, `widgets/summary.json`: passed=3, total=3.
 - **38310722420** (ci-check/assertion-fail): контролируемое падение assertion (`QA.GURU-NO-SUCH-TEXT`) — Run UI tests failure; allure-results с PNG+HTML-вложениями, JUnit XML и report загружены; Pages-шаг и deploy-report пропущены (не default branch). Ветка удалена.
 - **38310878425** (ci-check/compile-fail): ошибка компиляции — Compile tests failure; tests, uploads и generate пропущены; артефактов нет. Ветка удалена.
 - **38311003194** (ci-check/no-results): `./gradlew noSuchTask` — Run UI tests failure; Generate падает с `::error::No Allure test results`, отчёт с нулём тестов не создан, uploads отчёта пропущены. Ветка удалена.
-- **38311448403** ([запуск](https://github.com/qa-guru/getting-started-java-ai/actions/runs/38311448403), master, commit 9799a61): по последнему предоставленному отчёту ui-tests и deploy-report завершились success, BUILD SUCCESSFUL, 3/3 теста; Pages обновлены. При изменении порядка фаз этот запуск через GitHub API повторно не проверялся; подтверждение SHA, jobs и артефактов входит в фазу 8.
+- **38311448403** ([запуск](https://github.com/qa-guru/getting-started-java-ai/actions/runs/38311448403), master, commit 9799a61): ui-tests и deploy-report — success, BUILD SUCCESSFUL, 3/3 теста; Pages обновлены. Подтверждён повторно в фазе 8 через GitHub API: headSha `9799a61955dbbeacd52fbc59d199f0f17fe6d1bf`, jobs, steps, логи и содержимое артефактов проверены.
 
 В review не считать все красные запуски контролируемыми: в истории есть также реальные ошибки запуска Chrome, передачи свойств и настройки Pages. Последний зелёный запуск не отменяет этой истории и не доказывает отсутствие риска HTTP 429.
 
-Итоговые решения по браузеру: Chrome падает на этом runner без `--no-sandbox` (user-namespace sandbox недоступен; setuid-helper не помогает) — аргумент передаётся только в CI через `-Dchromeoptions.args=--no-sandbox`; локальные запуски без него. Компромисс принят: ephemeral runner, открывается только github.com.
+Итоговые решения по браузеру: Chrome падает на этом runner без `--no-sandbox` — аргумент передаётся только в CI через `-Dchromeoptions.args=--no-sandbox`; локальные запуски без него. Компромисс принят: ephemeral runner, открывается только github.com. Уточнение фазы 8: настоящая причина падения не установлена (лог диагностики обрезан); setuid-helper фактически не применялся из-за неверного имени файла — вероятная причина (AppArmor/userns) остаётся неподтверждённой гипотезой, поэтому `--no-sandbox` считается принятым риском, а не проверенным решением.
 
 Изменённые файлы фазы: `.github/workflows/ui-tests.yml`, `build.gradle` (проброс `selenide.browserBinary`, `webdriver.chrome.driver`, `chromeoptions.args` — только если заданы), этот план. Коммиты: d473a02 (workflow), 3c490e5 (промежуточный план), 24bea81→f253482 (исправления CI: Pages policy, chrome sandbox helper → удалён, chromeoptions.args), финальный коммит плана — ниже.
 
@@ -275,17 +277,46 @@ gradle test --tests SearchTests.successfulSearchTest --rerun-tasks --console=pla
 
 ## Фаза 8 — Review
 
-Статус: следующая фаза, выполнение ещё не подтверждено. Объём — реализованные фазы 0–5; Telegram и Jenkins исключены из демонстрационного review как отложенное ДЗ, а не как выполненные интеграции.
+Статус: завершена 2026-10-17. По решению пользователя — без изменения кода, workflow и инфраструктуры («только план»). Объём — фазы 0–5; Telegram и Jenkins исключены из review как отложенное ДЗ, а не как выполненные интеграции.
 
-- [ ] Проверить запуск из чистого checkout без удаления или изменения текущего WIP.
-- [ ] Проверить параметры окружения, независимость тестов и lifecycle браузера.
-- [ ] Проверить отсутствие секретов и generated artifacts в git, permissions и безопасность публичных вложений отчёта.
-- [ ] Проверить статусы при падении тестов, ошибке сборки, отсутствии результатов и ошибке генерации отчёта; ошибки Telegram проверяются отдельно в ДЗ.
-- [ ] Сверить SHA и jobs последнего успешного CI-запуска, артефакты контролируемых падений и соответствие Pages выбранному запуску. Не создавать новые падения и не менять инфраструктуру без разрешения.
-- [ ] Отдельно оценить риск существующего --no-sandbox; не ослаблять security controls ради зелёной сборки и не переносить настройку на Jenkins как универсальный default.
-- [ ] Перечислить проверенное локально, в реальном GitHub Actions, непроверенное и отложенное в ДЗ; Jenkins и Telegram не выдавать за проверенные.
-- [ ] До исправления кода представить findings с доказательствами, важностью и минимальным предложением; получить согласование исправлений.
-- [ ] Обновить существующий план и создать финальный коммит только со своими проверенными изменениями, если они есть.
+Проверенный код и workflow — commit `9799a61955dbbeacd52fbc59d199f0f17fe6d1bf` (= `ai/master`, commit успешного run 38311448403). Локальный HEAD `bb08099` отличается от него только этим файлом плана; код, workflow и wrapper идентичны — сопоставлено по `git diff`, а не по номеру HEAD. Рабочее дерево чистое: прежние whitespace-изменения `pages/SearchPage.java` и `pages/SearchResultsPage.java` убраны владельцем (см. bb08099), в review не участвовали.
+
+### Проверено локально (2026-10-17)
+
+- [x] Чистый checkout: `git clone` → `git checkout 9799a61` в `/tmp/phase8-review/checkout-9799a61`, изолированный `GRADLE_USER_HOME`; `reset`/`clean` и копирование build-артефактов не использовались, текущее дерево не тронуто.
+- [x] Wrapper и toolchain: `./gradlew --version` сам скачал Gradle 9.6.0-bin; SHA-256 дистрибутива `bbaeb2f…529a01` и `gradle-wrapper.jar` `497c8c2a…a194a9c7` совпали с официальными (downloads.gradle.org). Java — Corretto 21.0.9. Команды: `./gradlew --version`, `./gradlew testClasses --console=plain` — BUILD SUCCESSFUL без предупреждений.
+- [x] Тесты: `./gradlew test --console=plain -Dheadless=true` — 3/3 зелёных против локального Chrome 155; единственное предупреждение — CDP version mismatch (Selenium 4.49.0 поддерживает v151–153, см. риски).
+- [x] Передача свойств: временный init-script и пробный тестовый класс в `/tmp` (не в репозитории) подтвердили дефолты и переопределение `baseUrl`/`browser`/`browserSize`/`headless` в JVM тестов; `selenide.browserBinary` и `webdriver.chrome.driver` доходят до `Configuration`/`System.getProperty` до открытия браузера; Selenide 7 читает `selenide.browserBinary` — подтверждено по исходникам.
+- [x] Тест-код: `Selenide.open("/search")` реально использует `baseUrl`; lifecycle — конфигурация в `@BeforeEach`, `closeWebDriver()` в `@AfterEach` (сессия на тест); `sleep`, ретраев, `@Disabled`, скрытых перезапусков нет.
+- [x] Allure CLI 2.46.1: скачан заново с Maven Central, SHA-256 `37428164…cbf8d` совпал с `.sha1` Maven Central и digest GitHub Release; `allure generate build/allure-results --clean -o build/allure-report` собрал отчёт.
+- [x] Secrets/generated: поиск по tracked files, всей истории и CI-артефактам — секретов нет; `build/` в git не попадает; repo-level Actions variables/secrets пусты.
+
+### Проверено в реальном GitHub Actions (без новых запусков)
+
+- [x] Успешный run [38311448403](https://github.com/qa-guru/getting-started-java-ai/actions/runs/38311448403): headSha `9799a61`, master, jobs `ui-tests`+`deploy-report` success; Temurin 21.0.12.1, Gradle 9.6.0, CfT и ChromeDriver `153.0.8010.52` (версии совпали), Allure CLI 2.46.1 (checksum в CI совпал); BUILD SUCCESSFUL на compile и test; артефакты: 3 `*-result.json`, JUnit `tests=3 failures=0 errors=0 skipped=0`, report, github-pages.
+- [x] Контролируемые падения (временные ветки, удалены): [38310722420](https://github.com/qa-guru/getting-started-java-ai/actions/runs/38310722420) — assertion-fail, артефакты с PNG-screenshot и HTML page source; [38310878425](https://github.com/qa-guru/getting-started-java-ai/actions/runs/38310878425) — compile-fail, стоп на Compile tests, report/deploy skipped; [38311003194](https://github.com/qa-guru/getting-started-java-ai/actions/runs/38311003194) — no-results, явный `::error::No Allure test results`, deploy skipped.
+- [x] Workflow: все 7 actions закреплены по SHA, каждый SHA соответствует заявленному тегу; `actionlint` 1.7.12 со встроенным ShellCheck 0.11.0 — 0 ошибок; inputs валидируются (`browser` — choice `chrome`, `browserSize` — regex `^[0-9]{3,4}x[0-9]{3,4}$`); permissions минимальны на уровне jobs; exit code тестов сохраняется (`|| true`, `continue-on-error`, retries отсутствуют); `build/` не кэшируется.
+- [x] Pages: последний deployment `7024504634` — SHA `9799a61` от run 38311448403; https://qa-guru.github.io/getting-started-java-ai/ — HTTP 200; распакованный артефакт `github-pages` идентичен содержимому сайта (37 файлов), отчёт показывает 3 passed; визуально проверен по скриншотам агентом — приёмка пользователем не зафиксирована.
+
+### Findings и открытые риски
+
+Blocker-дефектов не найдено; код не менялся. Зафиксировано:
+
+- **Существенный риск (доказанный дефект диагностики):** обоснование `--no-sandbox` неточно — setuid-helper ни разу не применялся (файл `chrome_sandbox`, искался `chrome-sandbox`); настоящая причина падения Chrome не установлена, AppArmor/userns — неподтверждённая гипотеза. Компромисс `--no-sandbox` остаётся принятым (ephemeral runner, только github.com) и не переносится на Jenkins/локальные запуски как default.
+- **Подтверждённое решение, не дефект:** publish-always — failed-отчёт с master публикуется на публичный Pages (согласовано на этапе A, подтверждено run `38309080672`); вложения failed-прогона (screenshot, page source, служебные данные runner) публичны — при смене политики добавить условие `needs.ui-tests.result == 'success'`.
+- **Улучшение:** CfT `153.0.8010.52` отстаёт от Stable (`155.0.8059.39` на дату проверки); Selenium 4.49.0 поддерживает CDP только v151–153 — обновление браузера требует сначала обновления стека, отдельное согласование.
+- **Улучшение:** локальные `build/allure-results` накапливают результаты разных прогонов (очистки нет) — локальный отчёт может смешивать прогоны; CI не затронут.
+- **Улучшение/security:** repository-level Actions defaults слабее job-level: `default_workflow_permissions=write`, approve PRs разрешены, `allowed_actions=all`, `sha_pinning_required=false` — любой будущий workflow без `permissions:` получит write-token; усиление — через Settings/API с разрешения.
+- **Улучшение:** `cache-provider: enhanced` у setup-gradle — proprietary-провайдер; open-source default — `basic`.
+- **Риск (принят):** зависимость от живого github.com — данные `qa.guru`, семантика `stars:>999999999`, возможные HTTP 429; без ретраев.
+
+### Непроверенное
+
+- Сценарий «ошибка генерации при сохранённых сырых результатах» — подходящего run в истории нет; без нового запуска не воспроизведён.
+- Публикация failed-отчёта после контролируемого падения на default branch — наблюдалось только неконтролируемое (`38309080672`); на временных ветках deploy не настроен.
+- Dispatch с невалидным `browserSize` и поведение `timeout-minutes` относительно загрузки артефактов — только по коду.
+- Настоящая причина sandbox-падения Chrome в CI — диагностический run не согласован и не выполнялся.
+- Интерактивная визуальная приёмка отчёта пользователем; macOS/Windows-специфика runner'ов.
 
 ## Базовые команды проверки
 
