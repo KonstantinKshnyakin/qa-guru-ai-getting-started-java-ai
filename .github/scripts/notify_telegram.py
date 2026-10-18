@@ -13,6 +13,7 @@ Exit codes:
 """
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -24,11 +25,18 @@ STATUS_LABELS = {
     "cancelled": "⚠️ Cancelled",
 }
 
+# Telegram legacy Markdown only treats these four characters as special.
+_MD_SPECIAL = re.compile(r"([_*`\[])")
+
 TIMEOUT_SECONDS = 10
 
 
 def env(name, default=""):
     return os.environ.get(name, default)
+
+
+def esc(value):
+    return _MD_SPECIAL.sub(r"\\\1", value)
 
 
 def build_message():
@@ -37,19 +45,21 @@ def build_message():
         raise ValueError(f"unknown STATUS: {status!r}")
 
     lines = [
-        STATUS_LABELS[status],
-        f"Project: {env('PROJECT')}",
-        "CI: GitHub Actions",
-        f"Branch/commit: {env('BRANCH')} @ {env('COMMIT')}",
+        f"*{STATUS_LABELS[status]}*",
+        "",
+        f"*Project:* {esc(env('PROJECT'))}",
+        "*CI:* GitHub Actions",
+        f"*Branch:* {esc(env('BRANCH'))}",
+        f"*Commit:* {esc(env('COMMIT'))}",
+        "",
     ]
 
     if status in ("success", "tests-failed"):
         if env("STATS_OK") == "true":
-            lines.append(
-                "Tests: passed={0}, failed={1}, skipped={2}".format(
-                    env("PASSED", "0"), env("FAILED", "0"), env("SKIPPED", "0")
-                )
-            )
+            lines.append("*Tests:*")
+            lines.append(f"✅ Passed: `{esc(env('PASSED', '0'))}`")
+            lines.append(f"❌ Failed: `{esc(env('FAILED', '0'))}`")
+            lines.append(f"⏭ Skipped: `{esc(env('SKIPPED', '0'))}`")
         else:
             lines.append("Tests: stats unavailable (JUnit XML missing or invalid)")
     elif status == "build-failed":
@@ -57,10 +67,11 @@ def build_message():
     elif status == "cancelled":
         lines.append("Run was cancelled before completion")
 
-    lines.append(f"Run: {env('RUN_URL')}")
+    lines.append("")
+    lines.append(f"Run: {esc(env('RUN_URL'))}")
     report_url = env("REPORT_URL")
     if report_url:
-        lines.append(f"Report: {report_url}")
+        lines.append(f"Report: {esc(report_url)}")
 
     return "\n".join(lines)
 
@@ -68,7 +79,12 @@ def build_message():
 def send(token, chat_id, text):
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = json.dumps(
-        {"chat_id": chat_id, "text": text, "disable_web_page_preview": True}
+        {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True,
+        }
     ).encode("utf-8")
     request = urllib.request.Request(
         url,
