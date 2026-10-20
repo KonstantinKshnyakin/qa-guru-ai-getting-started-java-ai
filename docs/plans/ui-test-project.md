@@ -31,7 +31,7 @@
 - Фаза 3 завершена по отчёту пользователя, коммит 1312c8da32be42e5351af1334cf0bf035c65ab54 подтверждён в истории: локаторы и взаимодействия перенесены в pages.SearchPage и pages.SearchResultsPage, тесты и TestBase перемещены в package tests. Структура и сохранение assertions подтверждены чтением файлов; браузерные проверки при обновлении плана не повторялись.
 - Фаза 4 завершена в этой сессии: Allure Java 3.0.0 (адаптеры) + Allure Report 2.46.1 CLI (генератор); проверки и ограничения — в разделе фазы 4.
 - Фаза 5 завершена по отчёту: workflow проверен локально и в реальном GitHub Actions — успешные, контролируемые и диагностические запуски перечислены в разделе фазы 5. Успешный запуск 38311448403 повторно подтверждён через API в фазе 8.
-- Фазы 6 и 7 отложены по решению пользователя в домашнее задание учащимся; не реализованы и не отмечаются выполненными в демонстрационном проекте. Фаза 6: этап A (согласование) пройден учащимся 2026-10-18 — решения зафиксированы в разделе фазы 6; реализация не начата.
+- Фазы 6 и 7 отложены по решению пользователя в домашнее задание учащимся; в демонстрационном проекте не реализуются. Фаза 6 выполнена учащимся 2026-10-18 (этапы A–D: согласование, реализация, проверка на fixtures, реальная отправка) — статус, решения и проверки зафиксированы в разделе фазы 6; фаза 7 (Jenkins) не начата.
 - Фаза 8 (Review) выполнена 2026-10-17: объём фаз 0–5 проверен без изменения кода, workflow и инфраструктуры; findings, проверки и ограничения — в разделе фазы 8.
 
 Порядок дальнейшей работы: демонстрационный объём фаз 0–5 завершён и проверен; фазы 6–7 выполняются учащимися отдельно, сначала согласование, затем по одной фазе с проверкой и собственным коммитом. Задание для учащихся (два варианта: полный путь 0–8 и короткий путь 6–7): [docs/homework.md](../homework.md).
@@ -238,55 +238,22 @@ gradle test --tests SearchTests.successfulSearchTest --rerun-tasks --console=pla
 
 ## Фаза 6 — Telegram
 
-Статус: завершена 2026-10-18 в рамках домашнего задания учащегося (короткий путь, Вариант B). Этапы A (согласование), B (реализация), C (проверка на fixtures) и D (реальная отправка, разрешена пользователем) выполнены и проверены — см. ниже. Jenkins (фаза 7) не затрагивалась.
+Статус: выполнена учащимся 2026-10-18 (короткий путь, Вариант B), этапы A–D пройдены. Подробности, решения и результаты проверок — в [phase6-telegram-notes.md](phase6-telegram-notes.md). Коммиты `1ffe2bc`, `cb50947` на ветке `dz-oct-12-6` (переименована из `dz1`), репозиторий `KonstantinKshnyakin/qa-guru-ai-getting-started-java-ai`.
 
-Файлы: `.github/workflows/ui-tests.yml` (новые outputs `ui-tests`/`deploy-report`, job `notify`), `.github/scripts/junit_stats.py`, `.github/scripts/notify_telegram.py`, `.gitignore` (`__pycache__/`). Коммит реализации: `1ffe2bc` (ветка `dz1`, репозиторий `KonstantinKshnyakin/qa-guru-ai-getting-started-java-ai`).
+### Перед реализацией согласовать
 
-### Согласовано на этапе A (2026-10-18)
+- [x] Нужны ли уведомления из GitHub Actions и Jenkins и для каких исходов.
+- [x] Имена secrets/credentials, поведение при отсутствии секретов и ошибке Telegram.
+- [x] Разрешение на реальную отправку сообщения.
 
-- [x] **CI и исходы**: уведомления только из GitHub Actions (Jenkins — отдельная фаза 7, не реализован). Уведомлять обо всех исходах: success, failure тестов, ошибка сборки/компиляции до тестов, cancelled. Для каждого исхода — своё сообщение (не общий шаблон).
-- [x] **Secrets**: имена `TELEGRAM_BOT_TOKEN` и `TELEGRAM_CHAT_ID` (GitHub Actions repository secrets). При отсутствии хотя бы одного — шаг уведомления пишет заметное ("пожирнее") предупреждение в лог CI, без значений секретов, и завершается без ошибки; на статус `ui-tests` не влияет.
-- [x] **Ошибка самого Telegram API** (таймаут, HTTP-ошибка, `ok=false`): шаг уведомления логирует факт ошибки (без утечки токена/chat id) и может завершиться неуспешно только в рамках своего шага. Итоговый статус прогона не должен меняться из-за сбоя уведомления — ни маскировать failure тестов, ни превращать success в failure. Изоляция ограничена только шагом нотификации (не ретраи и не continue-on-error самих тестов — запрет AGENTS.md на безусловный continue-on-error к тестовым шагам не относится).
-- [x] **Содержание сообщений по исходам** (всегда: проект, CI = GitHub Actions, branch/commit, ссылка на run):
-  - success — статус "✅ Success", passed/failed/skipped; ссылка на Allure-отчёт (GitHub Pages) только если прогон на `master`/мерж в `master`; на прочих ветках — только статистика, без ссылки на отчёт (Pages не разворачивается).
-  - failure тестов — статус "❌ Tests failed", passed/failed/skipped/errors; та же логика ссылки на отчёт (только `master`).
-  - ошибка сборки/компиляции до тестов — статус "🛑 Build failed before tests", без passed/failed/skipped (явный текст "тесты не запускались"), без ссылки на отчёт.
-  - cancelled — статус "⚠️ Cancelled", без статистики тестов и без ссылки на отчёт.
-- [x] **Инструменты реализации**: Python 3 (stdlib, предустановлен на `ubuntu-24.04`, без новых зависимостей) — `xml.etree.ElementTree` для статистики JUnit XML (считать только `testcase`/`failure`/`error`/`skipped`-элементы, не атрибуты `testsuite`, чтобы не задваивать вложенные testsuite) и отправка в Telegram API тем же шагом (`curl` или `urllib`). Секреты передаются через `env:` шага, не через аргументы командной строки.
-- [x] **Разрешение на реальную отправку** — дано пользователем после прохождения Этапа C; реальная отправка выполнена (см. Этап D).
+### Реализация и проверка
 
-### Этап B — реализация (2026-10-18)
-
-- [x] `junit_stats.py`: считает только `testcase`-элементы через `root.iter("testcase")` (не атрибуты `testsuite`), поэтому несколько XML-файлов суммируются, а вложенные `testsuite` не задваиваются. Два режима: прямой вызов падает с кодом 2 (`no_xml_files`)/3 (`invalid_xml`) для тестируемости; `--github-output $GITHUB_OUTPUT` всегда возвращает 0, пишет `ok=false` при проблеме — подсчёт статистики не может завалить job `ui-tests`.
-- [x] `notify_telegram.py`: токен/chat id только из `env:` (никогда не из argv), сборка сообщения по 4 статусам (success/tests-failed/build-failed/cancelled), Markdown-разметка (`parse_mode: "Markdown"`, экранирование `_ * \` [`), timeout 10s, проверка HTTP-статуса и поля `ok`. При отсутствии секретов — `::warning::` и exit 0 без попытки отправки. При ошибке API — `::error::` (без значений секретов) и exit 1.
-- [x] `ui-tests.yml`: новые outputs `compile-outcome`/`tests-outcome`/`stats-*` в job `ui-tests`, шаг "Collect JUnit test stats"; output `page-url` в `deploy-report`; новый job `notify` (`needs: [ui-tests, deploy-report]`, `if: always()` — выполняется и при cancelled). Статус определяется в шаге "Determine run status" по приоритету cancelled → build-failed → tests-failed → success, до вызова шага отправки — результат физически не может измениться из-за сбоя нотификации (отдельный job, needs read-only). Ссылка на отчёт — только success/tests-failed на default branch при наличии `page-url`. Шаг отправки — `continue-on-error: true` (осознанное исключение из общего запрета AGENTS.md на безусловный continue-on-error — изолирует только side-канал уведомления, не маскирует тестовые падения).
-- [x] `actionlint` 1.7.12 (скачан с GitHub Releases, SHA-256 сверен с официальным `_checksums.txt`) на итоговом workflow — 0 ошибок, включая встроенный shellcheck. `python -m py_compile` на обоих скриптах — без ошибок.
-
-### Этап C — проверка на fixtures (2026-10-18, без реальной отправки)
-
-- [x] `junit_stats.py` (direct mode): success/failure/error/skipped — верные passed/failed/skipped; `multi` (2 XML-файла) — сумма без потерь; `nested` (testsuite внутри testsuite) — не задвоил (2, не 4); `missing` → exit 2/`no_xml_files`; `broken` XML → exit 3/`invalid_xml`.
-- [x] `junit_stats.py` (`--github-output` mode): на `missing`/`broken` exit всегда 0, но `ok=false` в output — подтверждено построчным содержимым файла.
-- [x] `notify_telegram.py` build_message(): все 4 статуса, со статистикой и без, со ссылкой на отчёт и без — тексты собраны корректно; неизвестный STATUS → `ValueError`.
-- [x] `notify_telegram.py` send() с mock `urllib.request.urlopen`: HTTP 200+`ok=true` → True; HTTP 200+`ok=false` → False с `::error::`; HTTP 401 → False; `TimeoutError` → False. Во всех случаях программной ассерцией проверено отсутствие токена в stdout.
-- [x] `main()`: без секретов — `urlopen` не вызывается вообще (счётчик=0), exit 0, `::warning::`; с секретами и успехом — exit 0; с секретами и HTTP-ошибкой — exit 1, без утечки.
-- [x] Логика "Determine run status" (bash) прогнана отдельно на 9 комбинациях входов (cancelled/build-failed/tests-failed/success на master/non-master, с page-url и без) — приоритеты и report-url логика подтверждены.
-- [x] "Failure тестов сохраняется при сбое уведомления" — подтверждено не отдельным fixture-тестом, а структурно: `needs.ui-tests.result`/`outputs` фиксируются при завершении job `ui-tests` и не могут быть переписаны job'ом `notify`, который их только читает; `continue-on-error` стоит на шаге отправки, не на job — провал этого шага не меняет conclusion `notify`, тем более `ui-tests`.
-- Fixtures и Python test-harness использовались только во временной scratchpad-директории, в репозиторий не коммитились.
-
-### Этап D — реальная отправка (2026-10-18, разрешена пользователем)
-
-- [x] Локальный запуск `notify_telegram.py` с реальными `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` (из переменных окружения пользователя, не переданы в чат) — статус success, сообщение подтверждено пользователем как полученное и совпадающее с ожидаемым текстом.
-- [x] Реальный прогон GitHub Actions: репозиторий `KonstantinKshnyakin/qa-guru-ai-getting-started-java-ai` не имел ни одного зарегистрированного workflow (`actions/workflows` API → `total_count: 0`), хотя `workflow_dispatch` уже был в файле — та же проблема индексации, что в фазе 5 другого репозитория. Исправлено временной веткой `ci-check/register-workflow` с `on: push` только для этой ветки; после push workflow зарегистрировался (`id: 388691258`), ветка и временный триггер удалены (локально и на GitHub), в `dz1`/`master` не попали.
-- [x] `workflow_dispatch` запущен через GitHub API на ветке `dz1` (run [39156501722](https://github.com/KonstantinKshnyakin/qa-guru-ai-getting-started-java-ai/actions/runs/39156501722)): `ui-tests` success (3/3 теста, шаг "Collect JUnit test stats" success), `notify` success (шаг "Send Telegram notification" success), `deploy-report` skipped (`dz1` не default branch — ожидаемо). Лог шага отправки подтверждён через GitHub API: `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` замаскированы GitHub как `***`, вычисленные `STATUS=success`, `STATS_OK=true`, `PASSED=3/FAILED=0/SKIPPED=0`, `REPORT_URL` пусто (не master) — совпадает с ожиданиями; поиск по логу на утечку секретов — чисто.
-- [x] По итогам визуальной проверки пользователем формат сообщения дважды скорректирован: добавлена Markdown-разметка (`*bold*` для статуса и меток Project/CI/Branch/Commit/Tests, `` `code` `` для чисел passed/failed/skipped, эмодзи на каждую строку статистики), branch и commit разнесены на отдельные строки, добавлены пустые строки между блоками. Финальный формат подтверждён пользователем.
-- Реальные прогоны tests-failed/build-failed/cancelled в GitHub Actions не запрашивались пользователем — закрыто покрытием Этапа C (fixtures) и одним реальным success-прогоном end-to-end.
-
-### Ограничения и непроверенное
-
-- Реальные прогоны CI для tests-failed/build-failed/cancelled не выполнялись (только success) — по решению пользователя, покрытие этих случаев — fixtures Этапа C.
-- Для работы с GitHub API (dispatch, логи, список workflows) использовался временный fine-grained PAT пользователя (permissions: Actions read/write), установленный как переменная окружения, не как repo secret; рекомендовано удалить токен в GitHub Settings после сессии — вне контроля этой сессии.
-- `gh` CLI не установлен в этой среде — все операции с GitHub API шли через `curl`/REST API напрямую.
-- Markdown-режим Telegram экранирует только `_ * \` [`; при появлении этих символов в branch/commit/project они корректно экранируются (`esc()`), проверено отдельным fixture-кейсом со спецсимволами.
+- [x] Использовать secrets окружения без хардкода и логирования.
+- [x] Брать passed/failed/skipped из проверенного формата JUnit XML; не опираться на непроверенные внутренние файлы Allure-отчёта.
+- [x] Отличать сбой сборки до запуска тестов от успешного запуска с нулём тестов.
+- [x] Включить проект, CI, branch/commit, статус тестов, статистику и ссылку на запуск.
+- [x] Проверять HTTP-ответ и результат Telegram API; не маскировать исходное падение ошибкой уведомления.
+- [x] Проверить согласованные случаи без реальной отправки, затем выполнить разрешённую отправку; создать коммит.
 
 ## Фаза 7 — Jenkins
 
