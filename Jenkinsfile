@@ -10,21 +10,15 @@ pipeline {
         choice(name: 'BROWSER', choices: ['chrome'], description: 'Browser (only chrome is available on Selenoid for this project)')
         choice(name: 'BROWSER_VERSION', choices: ['156.0', '155.0', '148.0'], description: 'Chrome version on Selenoid')
         string(name: 'BROWSER_SIZE', defaultValue: '1920x1080', description: 'Browser window size, WIDTHxHEIGHT')
-        password(name: 'SELENOID_USER', defaultValue: '', description: 'Selenoid username (selenoid.qa.guru). Entered here because this account has no Credentials/View permission on this Jenkins.')
-        password(name: 'SELENOID_PASS', defaultValue: '', description: 'Selenoid password (selenoid.qa.guru)')
-        password(name: 'TELEGRAM_BOT_TOKEN', defaultValue: '', description: 'Telegram bot token for the notify step (optional, leave empty to skip notification)')
-        password(name: 'TELEGRAM_CHAT_ID', defaultValue: '', description: 'Telegram chat id for the notify step (optional)')
+        password(name: 'SELENOID_USER', defaultValue: '', description: 'Selenoid username (no Credentials/View permission on this Jenkins, so this is a param, not a Credential)')
+        password(name: 'SELENOID_PASS', defaultValue: '', description: 'Selenoid password')
+        password(name: 'TELEGRAM_BOT_TOKEN', defaultValue: '', description: 'Telegram bot token (optional, leave empty to skip notification)')
+        password(name: 'TELEGRAM_CHAT_ID', defaultValue: '', description: 'Telegram chat id (optional)')
     }
 
     environment {
         SELENOID_URL      = 'selenoid.qa.guru/wd/hub'
-        // Jenkins-only workaround: this agent's network blocks most of Telegram's IP
-        // ranges by IP (api.telegram.org resolves fine, TCP connect times out);
-        // confirmed by direct testing that 149.154.167.220 is reachable while
-        // 149.154.167.99/149.154.166.110/95.161.64.100/91.108.56.130 are not. Kept as
-        // a fallback list (first verified-working) in case firewall rules change.
-        // ci/groovy/notify_telegram.groovy only uses this when set; GitHub Actions
-        // does not set it and is unaffected.
+        // Jenkins-only: this agent's network blocks most Telegram IPs by TCP; 149.154.167.220 confirmed reachable (not guaranteed over time).
         TELEGRAM_RESOLVE_IPS = '149.154.167.220,149.154.167.99,149.154.166.110,95.161.64.100,91.108.56.130'
         ALLURE_VERSION    = '2.46.1'
         ALLURE_SHA256     = '37428164f310c8d137cfdd2c3a25d049b233261ddab13e1bd4dfd7627b5cbf8d'
@@ -35,80 +29,43 @@ pipeline {
     }
 
     stages {
-        stage('Validate inputs') {
-            steps {
-                sh '''
-                    case "$BROWSER_SIZE" in
-                        [0-9][0-9][0-9]x[0-9][0-9][0-9] | [0-9][0-9][0-9]x[0-9][0-9][0-9][0-9] | \
-                        [0-9][0-9][0-9][0-9]x[0-9][0-9][0-9] | [0-9][0-9][0-9][0-9]x[0-9][0-9][0-9][0-9])
-                            ;;
-                        *)
-                            echo "browserSize must match WIDTHxHEIGHT, e.g. 1920x1080" >&2
-                            exit 1
-                            ;;
-                    esac
-                '''
-            }
-        }
-
-        stage('Diagnose agent') {
-            steps {
-                sh '''
-                    echo "=== OS ==="
-                    uname -a
-                    echo "=== Java ==="
-                    java -version
-                '''
-            }
-        }
-
-        stage('Prepare Groovy runtime') {
+        stage('Prepare tools') {
             steps {
                 script {
                     sh '''
                         set -e
-                        mkdir -p "$TOOLS_DIR/groovy"
-                        cd "$TOOLS_DIR/groovy"
+                        case "$BROWSER_SIZE" in
+                            [0-9][0-9][0-9]x[0-9][0-9][0-9] | [0-9][0-9][0-9]x[0-9][0-9][0-9][0-9] | \
+                            [0-9][0-9][0-9][0-9]x[0-9][0-9][0-9] | [0-9][0-9][0-9][0-9]x[0-9][0-9][0-9][0-9]) ;;
+                            *) echo "browserSize must match WIDTHxHEIGHT, e.g. 1920x1080" >&2; exit 1 ;;
+                        esac
 
-                        if [ -f groovy.jar ] && echo "$GROOVY_SHA256  groovy.jar" | sha256sum --check --strict --status 2>/dev/null \
-                           && [ -f groovy-xml.jar ] && echo "$GROOVY_XML_SHA256  groovy-xml.jar" | sha256sum --check --strict --status 2>/dev/null; then
+                        mkdir -p "$TOOLS_DIR/groovy"
+                        if [ -f "$TOOLS_DIR/groovy/groovy.jar" ] \
+                           && echo "$GROOVY_SHA256  $TOOLS_DIR/groovy/groovy.jar" | sha256sum --check --strict --status 2>/dev/null \
+                           && [ -f "$TOOLS_DIR/groovy/groovy-xml.jar" ] \
+                           && echo "$GROOVY_XML_SHA256  $TOOLS_DIR/groovy/groovy-xml.jar" | sha256sum --check --strict --status 2>/dev/null; then
                             echo "Groovy $GROOVY_VERSION already present and verified, reusing"
                         else
-                            curl -fsSL -o groovy.jar "https://repo.maven.apache.org/maven2/org/apache/groovy/groovy/$GROOVY_VERSION/groovy-$GROOVY_VERSION.jar"
-                            echo "$GROOVY_SHA256  groovy.jar" | sha256sum --check --strict
-                            curl -fsSL -o groovy-xml.jar "https://repo.maven.apache.org/maven2/org/apache/groovy/groovy-xml/$GROOVY_VERSION/groovy-xml-$GROOVY_VERSION.jar"
-                            echo "$GROOVY_XML_SHA256  groovy-xml.jar" | sha256sum --check --strict
+                            curl -fsSL -o "$TOOLS_DIR/groovy/groovy.jar" "https://repo.maven.apache.org/maven2/org/apache/groovy/groovy/$GROOVY_VERSION/groovy-$GROOVY_VERSION.jar"
+                            echo "$GROOVY_SHA256  $TOOLS_DIR/groovy/groovy.jar" | sha256sum --check --strict
+                            curl -fsSL -o "$TOOLS_DIR/groovy/groovy-xml.jar" "https://repo.maven.apache.org/maven2/org/apache/groovy/groovy-xml/$GROOVY_VERSION/groovy-xml-$GROOVY_VERSION.jar"
+                            echo "$GROOVY_XML_SHA256  $TOOLS_DIR/groovy/groovy-xml.jar" | sha256sum --check --strict
                         fi
+
+                        if [ -x "$TOOLS_DIR/allure-$ALLURE_VERSION/bin/allure" ] \
+                           && [ "$($TOOLS_DIR/allure-$ALLURE_VERSION/bin/allure --version)" = "$ALLURE_VERSION" ]; then
+                            echo "Allure CLI $ALLURE_VERSION already present, reusing"
+                        else
+                            rm -rf "$TOOLS_DIR/allure-$ALLURE_VERSION"
+                            curl -fsSL -o "$TOOLS_DIR/allure.tgz" "https://repo.maven.apache.org/maven2/io/qameta/allure/allure-commandline/$ALLURE_VERSION/allure-commandline-$ALLURE_VERSION.tgz"
+                            echo "$ALLURE_SHA256  $TOOLS_DIR/allure.tgz" | sha256sum --check --strict
+                            tar -xzf "$TOOLS_DIR/allure.tgz" -C "$TOOLS_DIR"
+                        fi
+                        "$TOOLS_DIR/allure-$ALLURE_VERSION/bin/allure" --version
                     '''
                     env.GROOVY_CP = "${env.WORKSPACE}/${env.TOOLS_DIR}/groovy/groovy.jar:${env.WORKSPACE}/${env.TOOLS_DIR}/groovy/groovy-xml.jar"
                 }
-            }
-        }
-
-        stage('Prepare Allure CLI') {
-            steps {
-                sh '''
-                    set -e
-                    mkdir -p "$TOOLS_DIR"
-                    cd "$TOOLS_DIR"
-
-                    if [ -x "allure-$ALLURE_VERSION/bin/allure" ]; then
-                        current_version=$(./allure-$ALLURE_VERSION/bin/allure --version || true)
-                        if [ "$current_version" = "$ALLURE_VERSION" ]; then
-                            echo "Allure CLI $ALLURE_VERSION already present, reusing"
-                        else
-                            rm -rf "allure-$ALLURE_VERSION"
-                        fi
-                    fi
-
-                    if [ ! -x "allure-$ALLURE_VERSION/bin/allure" ]; then
-                        curl -fsSL -o allure.tgz "https://repo.maven.apache.org/maven2/io/qameta/allure/allure-commandline/$ALLURE_VERSION/allure-commandline-$ALLURE_VERSION.tgz"
-                        echo "$ALLURE_SHA256  allure.tgz" | sha256sum --check --strict
-                        tar -xzf allure.tgz
-                    fi
-
-                    ./allure-$ALLURE_VERSION/bin/allure --version
-                '''
             }
         }
 
@@ -128,17 +85,9 @@ pipeline {
         stage('Run UI tests') {
             when { expression { env.COMPILE_OK == 'true' } }
             steps {
+                // returnStatus: junit() below decides SUCCESS/UNSTABLE/FAILURE, not gradle's exit code.
                 script {
-                    // returnStatus so a test assertion failure (non-zero gradle exit) does not
-                    // immediately fail the build: the junit step below is the single source of
-                    // truth for SUCCESS/UNSTABLE/FAILURE, per the agreed FAILURE/UNSTABLE policy.
-                    // SELENOID_USER/SELENOID_PASS come from password build parameters (not Jenkins
-                    // Credentials): this account has no Credentials/View permission on this Jenkins
-                    // instance (System store needs admin; Folder store returns "missing the
-                    // Credentials/View permission"; personal User-store credentials exist but are
-                    // never resolved by withCredentials in a Pipeline job, by Jenkins' own design).
-                    // Jenkins still masks password-parameter values in the console log.
-                    int rc = sh(returnStatus: true, script: '''
+                    sh(returnStatus: true, script: '''
                         ./gradlew test --console=plain \
                           -DbaseUrl=https://github.com \
                           "-Dbrowser=$BROWSER" \
@@ -147,15 +96,13 @@ pipeline {
                           -Dheadless=true \
                           "-Dremote=https://$SELENOID_USER:$SELENOID_PASS@$SELENOID_URL"
                     ''')
-                    echo "gradle test exit code: ${rc} (status decided by the junit step, not this code)"
                 }
             }
             post {
                 always {
+                    // findFiles (Pipeline Utility Steps) isn't installed here; junit()'s own
+                    // "no matching files" error covers the no-results case.
                     script {
-                        // The findFiles step (Pipeline Utility Steps plugin) is not installed on
-                        // this Jenkins; rely on junit()'s own built-in "no matching files" error
-                        // instead of pre-checking with findFiles/fileExists.
                         try {
                             def results = junit(testResults: 'build/test-results/test/*.xml')
                             env.STATS_OK = 'true'
@@ -207,11 +154,7 @@ pipeline {
                     status = 'build-failed'
                 }
 
-                // Any failure here (network, bad response) is caught and logged only: a
-                // notification problem must never change the build result. TELEGRAM_BOT_TOKEN/
-                // TELEGRAM_CHAT_ID come from password build parameters, not Jenkins Credentials
-                // (see the note in the "Run UI tests" stage); notify_telegram.groovy already
-                // treats empty values as "secrets not set" and skips sending without failing.
+                // A notify failure (network, bad response, missing GROOVY_CP) must never change the build result.
                 try {
                     withEnv([
                         "STATUS=${status}",
@@ -226,10 +169,7 @@ pipeline {
                         "FAILED=${env.STATS_FAILED ?: '0'}",
                         "SKIPPED=${env.STATS_SKIPPED ?: '0'}"
                     ]) {
-                        int rc = sh(script: 'java -cp "$GROOVY_CP" groovy.ui.GroovyMain ci/groovy/notify_telegram.groovy', returnStatus: true)
-                        if (rc != 0) {
-                            echo "Telegram notification failed (exit ${rc}); does not affect the build result"
-                        }
+                        sh(script: 'java -cp "$GROOVY_CP" groovy.ui.GroovyMain ci/groovy/notify_telegram.groovy', returnStatus: true)
                     }
                 } catch (Exception exc) {
                     echo "Telegram notification step could not run (${exc.message}); does not affect the build result"
