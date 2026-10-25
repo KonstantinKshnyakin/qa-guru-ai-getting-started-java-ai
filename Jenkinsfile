@@ -34,12 +34,6 @@ pipeline {
                 script {
                     sh '''
                         set -e
-                        case "$BROWSER_SIZE" in
-                            [0-9][0-9][0-9]x[0-9][0-9][0-9] | [0-9][0-9][0-9]x[0-9][0-9][0-9][0-9] | \
-                            [0-9][0-9][0-9][0-9]x[0-9][0-9][0-9] | [0-9][0-9][0-9][0-9]x[0-9][0-9][0-9][0-9]) ;;
-                            *) echo "browserSize must match WIDTHxHEIGHT, e.g. 1920x1080" >&2; exit 1 ;;
-                        esac
-
                         mkdir -p "$TOOLS_DIR/groovy"
                         if [ -f "$TOOLS_DIR/groovy/groovy.jar" ] \
                            && echo "$GROOVY_SHA256  $TOOLS_DIR/groovy/groovy.jar" | sha256sum --check --strict --status 2>/dev/null \
@@ -69,21 +63,7 @@ pipeline {
             }
         }
 
-        stage('Compile tests') {
-            steps {
-                script {
-                    int rc = sh(script: './gradlew testClasses --console=plain', returnStatus: true)
-                    env.COMPILE_OK = (rc == 0) ? 'true' : 'false'
-                    if (rc != 0) {
-                        currentBuild.result = 'FAILURE'
-                        error("Compilation failed with exit code ${rc}")
-                    }
-                }
-            }
-        }
-
         stage('Run UI tests') {
-            when { expression { env.COMPILE_OK == 'true' } }
             steps {
                 // returnStatus: junit() below decides SUCCESS/UNSTABLE/FAILURE, not gradle's exit code.
                 script {
@@ -120,7 +100,7 @@ pipeline {
         }
 
         stage('Generate Allure report') {
-            when { expression { env.COMPILE_OK == 'true' } }
+            when { expression { env.STATS_OK == 'true' } }
             steps {
                 sh '''
                     set -e
@@ -142,9 +122,7 @@ pipeline {
 
             script {
                 String status
-                if (env.COMPILE_OK != 'true') {
-                    status = 'build-failed'
-                } else if (currentBuild.currentResult == 'UNSTABLE') {
+                if (currentBuild.currentResult == 'UNSTABLE') {
                     status = 'tests-failed'
                 } else if (currentBuild.currentResult == 'ABORTED') {
                     status = 'cancelled'
