@@ -21,6 +21,16 @@ public class TestBase {
         Configuration.browser = System.getProperty("browser", "chrome");
         Configuration.browserSize = System.getProperty("browserSize", "1920x1080");
         Configuration.headless = Boolean.parseBoolean(System.getProperty("headless", "false"));
+
+        String remote = System.getProperty("remote", "");
+        if (!remote.isEmpty()) {
+            Configuration.remote = remote;
+        }
+
+        String browserVersion = System.getProperty("browserVersion", "");
+        if (!browserVersion.isEmpty()) {
+            Configuration.browserVersion = browserVersion;
+        }
     }
 
     @AfterEach
