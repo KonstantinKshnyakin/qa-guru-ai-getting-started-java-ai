@@ -1,6 +1,8 @@
 # Фаза 7 — Jenkins: детали реализации, проблемы и проверки
 
-Подробности к статусу в [ui-test-project.md](ui-test-project.md#фаза-7--jenkins). Выполнено 2026-10-25 (короткий путь, Вариант B). Jenkinsfile на ветке `dz-oct-12-7`, репозиторий `KonstantinKshnyakin/qa-guru-ai-getting-started-java-ai`, job `id-kshnyakinkg-ai-first` на `https://jenkins.qa.guru`. Коммиты: `7d9f0b9`, `ccc3c84`, `33c02ea`, `65d3e78`, `66ed9aa`, `4238917`, `aff4092`, `5b6bb40`, `b51b637`.
+Подробности к статусу в [ui-test-project.md](ui-test-project.md#фаза-7--jenkins). Выполнено 2026-10-25 (короткий путь, Вариант B). Jenkinsfile на ветке `dz-oct-12-7`, репозиторий `KonstantinKshnyakin/qa-guru-ai-getting-started-java-ai`, job `id-kshnyakinkg-ai-first` на `https://jenkins.qa.guru`. Коммиты: `7d9f0b9`, `ccc3c84`, `33c02ea`, `65d3e78`, `66ed9aa`, `4238917`, `aff4092`, `5b6bb40`, `b51b637`, `263a781`, `372c998`.
+
+Реальный `workflow_dispatch` в GitHub Actions с новым (Selenoid + Groovy) workflow — выполнен: [run 40195526762](https://github.com/KonstantinKshnyakin/qa-guru-ai-getting-started-java-ai/actions/runs/40195526762), job'ы `ui-tests` и `notify` — success, `deploy-report` — skipped (ожидаемо, не default branch). Первая попытка ([run 40195304082](https://github.com/KonstantinKshnyakin/qa-guru-ai-getting-started-java-ai/actions/runs/40195304082)) упала на `Run UI tests` с `AuthenticationFilter`/`SessionNotCreatedException` — выяснилось, что workflow ссылался на secrets `SELENOID_USER`/`SELENOID_PASS`, а реально заведённые в репозитории secrets называются `QA_GURU_SELENOID_USER`/`QA_GURU_SELENOID_PASS` (та же конвенция, что в Jenkins); остальные 18 шагов джоба `ui-tests` (checkout, Java, Gradle, Allure CLI, Groovy runtime, компиляция, сбор статистики, артефакты, отчёт) прошли ещё в той попытке — упал только сам прогон тестов из-за неверного имени secret. Исправлено (`372c998`), повторный запуск — success.
 
 ## Отклонения от исходного плана и почему
 
@@ -45,6 +47,10 @@
 - После упрощения (объединение стадий, удаление отдельной "Compile tests") — заново проверено на реальной ветке с синтаксической ошибкой: ошибка компиляции всё ещё корректно даёт FAILURE (через путь "нет JUnit XML"), а не UNSTABLE.
 - Все 4 обязательных сценария (success, тесты упали → UNSTABLE, ошибка компиляции → FAILURE, нет результатов → FAILURE) прогнаны на реальном Jenkins, причём сценарий ошибки компиляции и общий success-путь перепроверены повторно после упрощения кода.
 
+### 6. GitHub Actions: неверные имена secrets при переносе workflow на Selenoid
+
+При миграции `.github/workflows/ui-tests.yml` на Selenoid workflow сослался на `secrets.SELENOID_USER`/`secrets.SELENOID_PASS`, а в репозитории реально заведены `QA_GURU_SELENOID_USER`/`QA_GURU_SELENOID_PASS` (та же конвенция имён, что в Jenkins). GitHub Actions не ругается на обращение к несуществующему secret — просто подставляет пустую строку, из-за чего `-Dremote=https://:@selenoid.qa.guru/wd/hub` ушёл с пустыми credentials и упал с той же `AuthenticationFilter`/`SessionNotCreatedException`, что и при заведомо неверном пароле в ручном тесте. Все остальные 18 шагов джоба `ui-tests` (checkout, Java, Gradle, Allure CLI, Groovy runtime, компиляция, сбор статистики, артефакты, отчёт) в той же попытке прошли успешно. Исправлено (`372c998`), повторный `workflow_dispatch` — success.
+
 ## Согласованные решения (этап A)
 
 - Доступ к Jenkins: API/CLI-доступ как у `kocmoc007` (роль `/students`); создание/настройка job, folder, build — через API; Credentials — только вручную пользователем в UI, и то ограниченно (см. выше).
@@ -65,6 +71,7 @@
 - `ci/groovy/junit_stats.groovy` — проверен на фикстурах (success/failure/error/skipped/nested-testsuite/multi-file/missing-dir/broken-XML, режим `--ci-output`), локально с Java 21 и Java 25.
 - `ci/groovy/notify_telegram.groovy` — проверен на локальном mock HTTP-сервере (4 статуса, `ok=false`, HTTP 401, connection-refused/timeout, экранирование спецсимволов) и дважды реальной отправкой (одна — непреднамеренная, см. ниже; вторая, с путём `TELEGRAM_RESOLVE_IPS`, не прошла из-за сетевой нестабильности, см. раздел 4).
 - Временные ветки `ci-check/jenkins-compile-fail`, `ci-check/jenkins-no-results`, `ci-check/jenkins-compile-fail-2` — созданы, использованы, удалены (локально и на GitHub) после проверки.
+- GitHub Actions (новый workflow на Selenoid + Groovy): реальный `workflow_dispatch` на `dz-oct-12-7`, [run 40195526762](https://github.com/KonstantinKshnyakin/qa-guru-ai-getting-started-java-ai/actions/runs/40195526762) — `ui-tests` и `notify` success, `deploy-report` skipped (не default branch). Первая попытка падала из-за неверных имён secrets — см. "Проблемы при реализации".
 
 ## Ретроспектива: где агент ошибся и как это обнаружилось
 
@@ -72,11 +79,11 @@
 - **Предположил, что `-Dselenide.browserBinary` и подобные свойства читаются Selenide автоматически по конвенции `selenide.<имяПоля>`** — оказалось верно, но вместо того чтобы доверять старому выводу плана, перепроверил реальным поиском строк в скомпилированном `selenide-7.18.2.jar` (строки `selenide`/`browserBinary`/`remote` раздельно, собираются через reflection) — поймал бы более раннюю ошибку, если бы сразу доверился документации без проверки.
 - **Три shell-бага (`[[`, `compgen`, `findFiles`) были бы пойманы раньше**, если бы Jenkinsfile с самого начала тестировался на реальном агенте, а не писался по аналогии с bash-синтаксисом GitHub Actions runner'ов (Ubuntu, где `sh` часто линкован на bash-совместимый `dash`, но `[[`/`compgen` всё равно недоступны и там — эта аналогия была ошибочной с самого начала, не только для Jenkins). Поймано реальными прогонами, не ревью кода.
 - **`id-kshnyakinkg-ai-first-folder` создан без проверки, что Credentials вообще будут доступны** — стоило сначала спросить пользователя проверить права в UI, а не тратить raunds на угадывание через API (которое давало только частичную картину — пустой `stores:{}` без явной причины).
+- **В GitHub Actions workflow сослался на secrets `SELENOID_USER`/`SELENOID_PASS`, не сверившись с именами, которые пользователь реально завёл** (`QA_GURU_SELENOID_USER`/`QA_GURU_SELENOID_PASS`) — чистая невнимательность при переносе из Jenkinsfile (там были `password`-параметры с короткими именами). Поймано только реальным прогоном `workflow_dispatch` (пустые secrets подставились молча, без ошибки GitHub — упало только на самой авторизации Selenoid), а не осмотром кода перед запуском.
 
 ## Ограничения и непроверенное
 
 - **Telegram с Jenkins — нестабильно по сети**, не гарантированная функция; не считать "починенной".
-- **GitHub Actions с новым workflow (Selenoid + Groovy)** — реальный `workflow_dispatch`-запуск на момент записи не выполнен: доступный GitHub-токен не имеет прав `actions:write` (`403 Resource not accessible by personal access token`). Статус — см. раздел ниже / обновить при повторной попытке.
 - Agent'ы `java-jdk21-jenkins-agent-3/4/5` и `java-jdk21-jenkins-warm-agent-1` не проверялись индивидуально (прогоны попадали на `-1`/`-2`) — для Selenoid-архитектуры это не критично (нет больше локальных зависимостей от конкретного агента), но не проверено явно.
 - `BROWSER_VERSION=156.0` выбран как единственная реально проверенная версия Selenoid; `155.0`/`148.0` в выпадающем списке присутствуют, но не прогонялись.
 - Точная причина сетевой блокировки Telegram/нестабильности `149.154.167.220` не установлена (файрвол курса, временное правило и т.д.) — не наша зона ответственности и не диагностировалась глубже прямых `curl`-проверок.
