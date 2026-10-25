@@ -27,27 +27,13 @@
 
 План фиксировал Allure Report 2 CLI 2.46.1 без Node.js. На Jenkins оказался установлен сам Allure Jenkins plugin — в списке доступных Pipeline-степов видны и `allure`, и `allure3`. Предлагали один раз подключить `allure(...)` степ для просмотра отчёта прямо в Jenkins UI — отклонено: нет `Manage Jenkins`, чтобы посмотреть реальную версию/настройки плагина и его совместимость с форматом результатов Report 2 CLI, которым мы и так пользуемся в GitHub Actions. Оставили только CLI 2.46.1 с тем же pinned SHA-256, что в GitHub Actions; отчёт доступен только как скачиваемый артефакт `build/allure-report`, не как кликабельная ссылка в Jenkins.
 
-### 3. Shell-портируемость: `sh`-степы выполняются под dash, не bash
-
-Три реальных бага, каждый найден по фактическому логу, не предположением:
-
-- `[[ ! "$X" =~ regex ]]` → `/bin/sh: [[: not found`. Заменено на POSIX `case`.
-- `compgen -G "pattern"` → `compgen: not found`; из-за этого шаг генерации Allure-отчёта **ложно падал даже когда результаты реально были** (build #14 — тесты реально прошли/упали штатно, но стадия отчёта ошибочно репортила "No Allure test results"). Заменено на `ls pattern > /dev/null 2>&1`.
-- `findFiles(glob: ...)` — степ плагина Pipeline Utility Steps, которого на этом Jenkins нет (`NoSuchMethodError` со списком реально доступных степов). Убрали, положились на собственную обработку ошибки `junit()` при отсутствии результатов.
-
-### 4. Сеть агента блокирует Telegram не полностью и не стабильно
+### 3. Сеть агента блокирует Telegram не полностью и не стабильно
 
 `api.telegram.org` резолвится по DNS нормально, но TCP-соединение по большинству IP таймаутится. Проверены 5 IP, предложенных пользователем: `149.154.167.220` при первой проверке отвечал (HTTP 302), остальные 4 — нет. Реализован `TELEGRAM_RESOLVE_IPS` (используется только в Jenkinsfile, GitHub Actions не задействован) — `notify_telegram.groovy` при наличии этой переменной пробует каждый IP через `curl --resolve` (с конфиг-файлом, чтобы токен не светился в `ps`/аргументах процесса), иначе — обычный `HttpClient`.
 
 **Важно:** при повторной проверке тот же `149.154.167.220` с того же агента **не ответил** (timeout). Это нестабильное, не гарантированное обходное решение, а не починенная проблема — зафиксировано как known limitation. Сбой notify изолирован и не влияет на статус сборки ни при каком исходе.
 
-### 5. FAILURE/UNSTABLE — реальные баги в первой версии, найденные по факту
-
-- Забыт `returnStatus: true` на `./gradlew test` — упавший assertion сразу зафейлил бы весь pipeline как FAILURE, `junit()` не смог бы понизить это до UNSTABLE (Jenkins не умеет улучшать результат). Исправлено до первого реального прогона.
-- После упрощения (объединение стадий, удаление отдельной "Compile tests") — заново проверено на реальной ветке с синтаксической ошибкой: ошибка компиляции всё ещё корректно даёт FAILURE (через путь "нет JUnit XML"), а не UNSTABLE.
-- Все 4 обязательных сценария (success, тесты упали → UNSTABLE, ошибка компиляции → FAILURE, нет результатов → FAILURE) прогнаны на реальном Jenkins, причём сценарий ошибки компиляции и общий success-путь перепроверены повторно после упрощения кода.
-
-### 6. GitHub Actions: неверные имена secrets при переносе workflow на Selenoid
+### 4. GitHub Actions: неверные имена secrets при переносе workflow на Selenoid
 
 При миграции `.github/workflows/ui-tests.yml` на Selenoid workflow сослался на `secrets.SELENOID_USER`/`secrets.SELENOID_PASS`, а в репозитории реально заведены `QA_GURU_SELENOID_USER`/`QA_GURU_SELENOID_PASS` (та же конвенция имён, что в Jenkins). GitHub Actions не ругается на обращение к несуществующему secret — просто подставляет пустую строку, из-за чего `-Dremote=https://:@selenoid.qa.guru/wd/hub` ушёл с пустыми credentials и упал с той же `AuthenticationFilter`/`SessionNotCreatedException`, что и при заведомо неверном пароле в ручном тесте. Все остальные 18 шагов джоба `ui-tests` (checkout, Java, Gradle, Allure CLI, Groovy runtime, компиляция, сбор статистики, артефакты, отчёт) в той же попытке прошли успешно. Исправлено (`372c998`), повторный `workflow_dispatch` — success.
 
@@ -69,7 +55,7 @@
   - **FAILURE, нет результатов** (`doFirst` в test-таске падает раньше первого теста) — build #19.
   - Негативный контроль Selenoid: заведомо неверный пароль → `SessionNotCreatedException`/`AuthenticationFilter` — подтверждает, что успешные прогоны реально идут через Selenoid, а не тихий fallback.
 - `ci/groovy/junit_stats.groovy` — проверен на фикстурах (success/failure/error/skipped/nested-testsuite/multi-file/missing-dir/broken-XML, режим `--ci-output`), локально с Java 21 и Java 25.
-- `ci/groovy/notify_telegram.groovy` — проверен на локальном mock HTTP-сервере (4 статуса, `ok=false`, HTTP 401, connection-refused/timeout, экранирование спецсимволов) и дважды реальной отправкой (одна — непреднамеренная, см. ниже; вторая, с путём `TELEGRAM_RESOLVE_IPS`, не прошла из-за сетевой нестабильности, см. раздел 4).
+- `ci/groovy/notify_telegram.groovy` — проверен на локальном mock HTTP-сервере (4 статуса, `ok=false`, HTTP 401, connection-refused/timeout, экранирование спецсимволов) и дважды реальной отправкой (одна — непреднамеренная, см. ниже; вторая, с путём `TELEGRAM_RESOLVE_IPS`, не прошла из-за сетевой нестабильности, см. раздел 3).
 - Временные ветки `ci-check/jenkins-compile-fail`, `ci-check/jenkins-no-results`, `ci-check/jenkins-compile-fail-2` — созданы, использованы, удалены (локально и на GitHub) после проверки.
 - GitHub Actions (новый workflow на Selenoid + Groovy): реальный `workflow_dispatch` на `dz-oct-12-7`, [run 40195526762](https://github.com/KonstantinKshnyakin/qa-guru-ai-getting-started-java-ai/actions/runs/40195526762) — `ui-tests` и `notify` success, `deploy-report` skipped (не default branch). Первая попытка падала из-за неверных имён secrets — см. "Проблемы при реализации".
 
