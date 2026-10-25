@@ -17,6 +17,14 @@ pipeline {
 
     environment {
         SELENOID_URL      = 'selenoid.qa.guru/wd/hub'
+        // Jenkins-only workaround: this agent's network blocks most of Telegram's IP
+        // ranges by IP (api.telegram.org resolves fine, TCP connect times out);
+        // confirmed by direct testing that 149.154.167.220 is reachable while
+        // 149.154.167.99/149.154.166.110/95.161.64.100/91.108.56.130 are not. Kept as
+        // a fallback list (first verified-working) in case firewall rules change.
+        // ci/groovy/notify_telegram.groovy only uses this when set; GitHub Actions
+        // does not set it and is unaffected.
+        TELEGRAM_RESOLVE_IPS = '149.154.167.220,149.154.167.99,149.154.166.110,95.161.64.100,91.108.56.130'
         ALLURE_VERSION    = '2.46.1'
         ALLURE_SHA256     = '37428164f310c8d137cfdd2c3a25d049b233261ddab13e1bd4dfd7627b5cbf8d'
         GROOVY_VERSION    = '5.0.6'

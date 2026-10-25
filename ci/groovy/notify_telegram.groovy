@@ -86,6 +86,69 @@ String toJsonString(String s) {
     return "\"${escaped}\""
 }
 
+// Only used when TELEGRAM_RESOLVE_IPS is set (Jenkins-only workaround: its agent
+// network blocks most of Telegram's IP ranges by hostname/IP, confirmed by direct
+// testing - api.telegram.org resolves fine but most resolved IPs time out at the
+// TCP level). Shells out to curl with --resolve so SNI/Host stay correct for TLS
+// and virtual-hosting, which a raw java.net.http.HttpClient connection to a literal
+// IP cannot provide without re-implementing TLS hostname handling. The token goes
+// into a curl config file (-K), never into process arguments, so it does not appear
+// in a process listing on the shared agent.
+boolean sendViaResolvedIp(String token, String chatId, String text, List<String> ips) {
+    int timeoutSeconds = 10
+    String payload = /{"chat_id":"${chatId.replace('\\', '\\\\').replace('"', '\\"')}","text":${toJsonString(text)},"parse_mode":"Markdown","disable_web_page_preview":true}/
+    String url = "https://api.telegram.org/bot${token}/sendMessage"
+
+    for (String ip : ips) {
+        ip = ip.trim()
+        if (!ip) {
+            continue
+        }
+        File payloadFile = File.createTempFile('tg-payload-', '.json')
+        File bodyFile = File.createTempFile('tg-body-', '.json')
+        File configFile = File.createTempFile('tg-curl-', '.cfg')
+        try {
+            payloadFile.text = payload
+            // curl's config-file parser treats backslashes as escapes; use forward
+            // slashes (accepted by curl on both POSIX and Windows) to stay portable.
+            String payloadPath = payloadFile.absolutePath.replace('\\', '/')
+            String bodyPath = bodyFile.absolutePath.replace('\\', '/')
+            configFile.text = "url = \"${url}\"\n" +
+                "resolve = \"api.telegram.org:443:${ip}\"\n" +
+                "header = \"Content-Type: application/json\"\n" +
+                "data-binary = \"@${payloadPath}\"\n" +
+                "max-time = ${timeoutSeconds}\n" +
+                "connect-timeout = 5\n" +
+                "silent\n" +
+                "show-error\n" +
+                "output = \"${bodyPath}\"\n" +
+                "write-out = \"%{http_code}\"\n"
+
+            def proc = ['curl', '-K', configFile.absolutePath.replace('\\', '/')].execute()
+            def out = new StringBuilder()
+            def err = new StringBuilder()
+            proc.consumeProcessOutput(out, err)
+            proc.waitForOrKill((timeoutSeconds + 5) * 1000L)
+            String statusCode = out.toString().trim()
+            String body = bodyFile.exists() ? bodyFile.text : ''
+
+            if (statusCode == '200' && (body =~ /"ok"\s*:\s*true/)) {
+                println "Telegram notification sent (via resolved IP ${ip})"
+                return true
+            }
+            println "::warning::Telegram via resolved IP ${ip} failed (HTTP ${statusCode ?: 'n/a'}): ${err}"
+        } catch (Exception exc) {
+            println "::warning::Telegram via resolved IP ${ip} failed: ${exc.message}"
+        } finally {
+            payloadFile.delete()
+            bodyFile.delete()
+            configFile.delete()
+        }
+    }
+    println '::error::Telegram API unreachable via all configured resolve IPs'
+    return false
+}
+
 boolean send(String token, String chatId, String text) {
     int timeoutSeconds = 10
     String payload = /{"chat_id":"${chatId.replace('\\', '\\\\').replace('"', '\\"')}","text":${toJsonString(text)},"parse_mode":"Markdown","disable_web_page_preview":true}/
@@ -130,7 +193,11 @@ try {
         println '::warning::TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not set; skipping Telegram notification'
         System.exit(0)
     }
-    System.exit(send(token, chatId, text) ? 0 : 1)
+    String resolveIps = env('TELEGRAM_RESOLVE_IPS')
+    boolean sent = resolveIps
+        ? sendViaResolvedIp(token, chatId, text, resolveIps.split(',').toList())
+        : send(token, chatId, text)
+    System.exit(sent ? 0 : 1)
 } catch (IllegalArgumentException exc) {
     println "::error::${exc.message}"
     System.exit(1)
