@@ -116,41 +116,43 @@ pipeline {
 
     post {
         always {
-            archiveArtifacts artifacts: 'build/allure-results/**, build/test-results/test/**, build/reports/tests/test/**, build/allure-report/**',
-                              allowEmptyArchive: true,
-                              fingerprint: false
-
             script {
-                String status
-                if (currentBuild.currentResult == 'UNSTABLE') {
-                    status = 'tests-failed'
-                } else if (currentBuild.currentResult == 'ABORTED') {
-                    status = 'cancelled'
-                } else if (currentBuild.currentResult == 'SUCCESS') {
-                    status = 'success'
-                } else {
-                    status = 'build-failed'
-                }
+                stage('Archive and notify') {
+                    archiveArtifacts artifacts: 'build/allure-results/**, build/test-results/test/**, build/reports/tests/test/**, build/allure-report/**',
+                                      allowEmptyArchive: true,
+                                      fingerprint: false
 
-                // A notify failure (network, bad response, missing GROOVY_CP) must never change the build result.
-                try {
-                    withEnv([
-                        "STATUS=${status}",
-                        "PROJECT=${env.JOB_NAME}",
-                        "CI_NAME=Jenkins",
-                        "BRANCH=${env.GIT_BRANCH ?: 'unknown'}",
-                        "COMMIT=${env.GIT_COMMIT ?: 'unknown'}",
-                        "RUN_URL=${env.BUILD_URL ?: ''}",
-                        "REPORT_URL=",
-                        "STATS_OK=${env.STATS_OK ?: 'false'}",
-                        "PASSED=${env.STATS_PASSED ?: '0'}",
-                        "FAILED=${env.STATS_FAILED ?: '0'}",
-                        "SKIPPED=${env.STATS_SKIPPED ?: '0'}"
-                    ]) {
-                        sh(script: 'java -cp "$GROOVY_CP" groovy.ui.GroovyMain ci/groovy/notify_telegram.groovy', returnStatus: true)
+                    String status
+                    if (currentBuild.currentResult == 'UNSTABLE') {
+                        status = 'tests-failed'
+                    } else if (currentBuild.currentResult == 'ABORTED') {
+                        status = 'cancelled'
+                    } else if (currentBuild.currentResult == 'SUCCESS') {
+                        status = 'success'
+                    } else {
+                        status = 'build-failed'
                     }
-                } catch (Exception exc) {
-                    echo "Telegram notification step could not run (${exc.message}); does not affect the build result"
+
+                    // A notify failure (network, bad response, missing GROOVY_CP) must never change the build result.
+                    try {
+                        withEnv([
+                            "STATUS=${status}",
+                            "PROJECT=${env.JOB_NAME}",
+                            "CI_NAME=Jenkins",
+                            "BRANCH=${env.GIT_BRANCH ?: 'unknown'}",
+                            "COMMIT=${env.GIT_COMMIT ?: 'unknown'}",
+                            "RUN_URL=${env.BUILD_URL ?: ''}",
+                            "REPORT_URL=",
+                            "STATS_OK=${env.STATS_OK ?: 'false'}",
+                            "PASSED=${env.STATS_PASSED ?: '0'}",
+                            "FAILED=${env.STATS_FAILED ?: '0'}",
+                            "SKIPPED=${env.STATS_SKIPPED ?: '0'}"
+                        ]) {
+                            sh(script: 'java -cp "$GROOVY_CP" groovy.ui.GroovyMain ci/groovy/notify_telegram.groovy', returnStatus: true)
+                        }
+                    } catch (Exception exc) {
+                        echo "Telegram notification step could not run (${exc.message}); does not affect the build result"
+                    }
                 }
             }
         }
