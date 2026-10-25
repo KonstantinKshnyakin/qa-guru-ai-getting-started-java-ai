@@ -168,7 +168,7 @@ pipeline {
             steps {
                 sh '''
                     set -e
-                    if ! compgen -G "build/allure-results/*-result.json" > /dev/null; then
+                    if ! ls build/allure-results/*-result.json > /dev/null 2>&1; then
                         echo "No Allure test results in build/allure-results; the report is not generated" >&2
                         exit 1
                     fi
