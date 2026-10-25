@@ -9,6 +9,10 @@ pipeline {
         choice(name: 'BROWSER', choices: ['chrome'], description: 'Browser (only chrome is available on Selenoid for this project)')
         choice(name: 'BROWSER_VERSION', choices: ['156.0', '155.0', '148.0'], description: 'Chrome version on Selenoid')
         string(name: 'BROWSER_SIZE', defaultValue: '1920x1080', description: 'Browser window size, WIDTHxHEIGHT')
+        password(name: 'SELENOID_USER', defaultValue: '', description: 'Selenoid username (selenoid.qa.guru). Entered here because this account has no Credentials/View permission on this Jenkins.')
+        password(name: 'SELENOID_PASS', defaultValue: '', description: 'Selenoid password (selenoid.qa.guru)')
+        password(name: 'TELEGRAM_BOT_TOKEN', defaultValue: '', description: 'Telegram bot token for the notify step (optional, leave empty to skip notification)')
+        password(name: 'TELEGRAM_CHAT_ID', defaultValue: '', description: 'Telegram chat id for the notify step (optional)')
     }
 
     environment {
@@ -25,10 +29,15 @@ pipeline {
         stage('Validate inputs') {
             steps {
                 sh '''
-                    if [[ ! "$BROWSER_SIZE" =~ ^[0-9]{3,4}x[0-9]{3,4}$ ]]; then
-                        echo "browserSize must match WIDTHxHEIGHT, e.g. 1920x1080" >&2
-                        exit 1
-                    fi
+                    case "$BROWSER_SIZE" in
+                        [0-9][0-9][0-9]x[0-9][0-9][0-9] | [0-9][0-9][0-9]x[0-9][0-9][0-9][0-9] | \
+                        [0-9][0-9][0-9][0-9]x[0-9][0-9][0-9] | [0-9][0-9][0-9][0-9]x[0-9][0-9][0-9][0-9])
+                            ;;
+                        *)
+                            echo "browserSize must match WIDTHxHEIGHT, e.g. 1920x1080" >&2
+                            exit 1
+                            ;;
+                    esac
                 '''
             }
         }
@@ -110,25 +119,26 @@ pipeline {
         stage('Run UI tests') {
             when { expression { env.COMPILE_OK == 'true' } }
             steps {
-                withCredentials([
-                    string(credentialsId: 'QA_GURU_SELENOID_USER', variable: 'SELENOID_USER'),
-                    string(credentialsId: 'QA_GURU_SELENOID_PASS', variable: 'SELENOID_PASS')
-                ]) {
-                    script {
-                        // returnStatus so a test assertion failure (non-zero gradle exit) does not
-                        // immediately fail the build: the junit step below is the single source of
-                        // truth for SUCCESS/UNSTABLE/FAILURE, per the agreed FAILURE/UNSTABLE policy.
-                        int rc = sh(returnStatus: true, script: '''
-                            ./gradlew test --console=plain \
-                              -DbaseUrl=https://github.com \
-                              "-Dbrowser=$BROWSER" \
-                              "-DbrowserVersion=$BROWSER_VERSION" \
-                              "-DbrowserSize=$BROWSER_SIZE" \
-                              -Dheadless=true \
-                              "-Dremote=https://$SELENOID_USER:$SELENOID_PASS@$SELENOID_URL"
-                        ''')
-                        echo "gradle test exit code: ${rc} (status decided by the junit step, not this code)"
-                    }
+                script {
+                    // returnStatus so a test assertion failure (non-zero gradle exit) does not
+                    // immediately fail the build: the junit step below is the single source of
+                    // truth for SUCCESS/UNSTABLE/FAILURE, per the agreed FAILURE/UNSTABLE policy.
+                    // SELENOID_USER/SELENOID_PASS come from password build parameters (not Jenkins
+                    // Credentials): this account has no Credentials/View permission on this Jenkins
+                    // instance (System store needs admin; Folder store returns "missing the
+                    // Credentials/View permission"; personal User-store credentials exist but are
+                    // never resolved by withCredentials in a Pipeline job, by Jenkins' own design).
+                    // Jenkins still masks password-parameter values in the console log.
+                    int rc = sh(returnStatus: true, script: '''
+                        ./gradlew test --console=plain \
+                          -DbaseUrl=https://github.com \
+                          "-Dbrowser=$BROWSER" \
+                          "-DbrowserVersion=$BROWSER_VERSION" \
+                          "-DbrowserSize=$BROWSER_SIZE" \
+                          -Dheadless=true \
+                          "-Dremote=https://$SELENOID_USER:$SELENOID_PASS@$SELENOID_URL"
+                    ''')
+                    echo "gradle test exit code: ${rc} (status decided by the junit step, not this code)"
                 }
             }
             post {
@@ -185,30 +195,28 @@ pipeline {
                     status = 'build-failed'
                 }
 
-                // Any failure here (missing credentials, network, bad response) is caught and
-                // logged only: a notification problem must never change the build result.
+                // Any failure here (network, bad response) is caught and logged only: a
+                // notification problem must never change the build result. TELEGRAM_BOT_TOKEN/
+                // TELEGRAM_CHAT_ID come from password build parameters, not Jenkins Credentials
+                // (see the note in the "Run UI tests" stage); notify_telegram.groovy already
+                // treats empty values as "secrets not set" and skips sending without failing.
                 try {
-                    withCredentials([
-                        string(credentialsId: 'TELEGRAM_BOT_TOKEN', variable: 'TELEGRAM_BOT_TOKEN'),
-                        string(credentialsId: 'TELEGRAM_CHAT_ID', variable: 'TELEGRAM_CHAT_ID')
+                    withEnv([
+                        "STATUS=${status}",
+                        "PROJECT=${env.JOB_NAME}",
+                        "CI_NAME=Jenkins",
+                        "BRANCH=${env.GIT_BRANCH ?: 'unknown'}",
+                        "COMMIT=${env.GIT_COMMIT ?: 'unknown'}",
+                        "RUN_URL=${env.BUILD_URL ?: ''}",
+                        "REPORT_URL=",
+                        "STATS_OK=${env.STATS_OK ?: 'false'}",
+                        "PASSED=${env.STATS_PASSED ?: '0'}",
+                        "FAILED=${env.STATS_FAILED ?: '0'}",
+                        "SKIPPED=${env.STATS_SKIPPED ?: '0'}"
                     ]) {
-                        withEnv([
-                            "STATUS=${status}",
-                            "PROJECT=${env.JOB_NAME}",
-                            "CI_NAME=Jenkins",
-                            "BRANCH=${env.GIT_BRANCH ?: 'unknown'}",
-                            "COMMIT=${env.GIT_COMMIT ?: 'unknown'}",
-                            "RUN_URL=${env.BUILD_URL ?: ''}",
-                            "REPORT_URL=",
-                            "STATS_OK=${env.STATS_OK ?: 'false'}",
-                            "PASSED=${env.STATS_PASSED ?: '0'}",
-                            "FAILED=${env.STATS_FAILED ?: '0'}",
-                            "SKIPPED=${env.STATS_SKIPPED ?: '0'}"
-                        ]) {
-                            int rc = sh(script: 'java -cp "$GROOVY_CP" groovy.ui.GroovyMain ci/groovy/notify_telegram.groovy', returnStatus: true)
-                            if (rc != 0) {
-                                echo "Telegram notification failed (exit ${rc}); does not affect the build result"
-                            }
+                        int rc = sh(script: 'java -cp "$GROOVY_CP" groovy.ui.GroovyMain ci/groovy/notify_telegram.groovy', returnStatus: true)
+                        if (rc != 0) {
+                            echo "Telegram notification failed (exit ${rc}); does not affect the build result"
                         }
                     }
                 } catch (Exception exc) {
