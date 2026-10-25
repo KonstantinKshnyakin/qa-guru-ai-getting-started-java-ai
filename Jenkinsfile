@@ -144,16 +144,19 @@ pipeline {
             post {
                 always {
                     script {
-                        if (fileExists('build/test-results/test') && findFiles(glob: 'build/test-results/test/*.xml').length > 0) {
+                        // The findFiles step (Pipeline Utility Steps plugin) is not installed on
+                        // this Jenkins; rely on junit()'s own built-in "no matching files" error
+                        // instead of pre-checking with findFiles/fileExists.
+                        try {
                             def results = junit(testResults: 'build/test-results/test/*.xml')
                             env.STATS_OK = 'true'
                             env.STATS_PASSED = "${results.totalCount - results.failCount - results.skipCount}"
                             env.STATS_FAILED = "${results.failCount}"
                             env.STATS_SKIPPED = "${results.skipCount}"
-                        } else {
+                        } catch (Exception exc) {
                             env.STATS_OK = 'false'
                             currentBuild.result = 'FAILURE'
-                            error('No JUnit test results in build/test-results/test; tests did not run')
+                            error("No JUnit test results in build/test-results/test; tests did not run (${exc.message})")
                         }
                     }
                 }
