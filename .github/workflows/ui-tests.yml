@@ -129,8 +129,8 @@ jobs:
           BROWSER: ${{ inputs.browser }}
           BROWSER_VERSION: ${{ inputs.browserVersion }}
           BROWSER_SIZE: ${{ inputs.browserSize }}
-          SELENOID_USER: ${{ secrets.SELENOID_USER }}
-          SELENOID_PASS: ${{ secrets.SELENOID_PASS }}
+          SELENOID_USER: ${{ secrets.QA_GURU_SELENOID_USER }}
+          SELENOID_PASS: ${{ secrets.QA_GURU_SELENOID_PASS }}
         run: >-
           ./gradlew test --console=plain
           -DbaseUrl=https://github.com
